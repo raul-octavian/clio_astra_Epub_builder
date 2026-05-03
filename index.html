@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clio Astra Book Orchestrator v3.4</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@900&family=Tenor+Sans&family=Patrick+Hand&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-page-bg: #f1f5f9;
+            --color-page-text: #0f172a;
+            --color-viewport-bg: #64748b;
+            --color-cover-bg: #cbd5e1;
+            --color-scrollbar-thumb: #475569;
+        }
+
+        body { background-color: var(--color-page-bg); margin: 0; font-family: sans-serif; color: var(--color-page-text); overflow: hidden; }
+        
+        /* Viewport Styling - STUDIO MODE */
+        .canvas-viewport {
+            background-color: var(--color-viewport-bg); /* Darker for focus */
+            display: flex;
+            flex-direction: column;
+            align-items: center;                                      
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            height: 100vh;
+            width: 100%;
+            padding: 100px 0;
+        }
+
+        /* Page Container - THE 1536x2048 MASTER */
+        .canvas-container {
+            background: white;
+            flex-shrink: 0;
+            position: relative;
+            overflow: hidden;
+            width: 1536px;
+            height: 2048px;
+            box-shadow: 0 60px 120px -30px rgba(0,0,0,0.5);
+        }
+
+        .full-bleed-bg {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            background: var(--color-cover-bg); 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .content-layer {
+            position: relative;
+            z-index: 10;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 250px 200px; /* Standard internal padding */
+        }
+
+        /* Volume cover (first page): pin glass title card toward top like story title */
+        .content-layer.content-layer--volume-cover {
+            padding: 80px 200px 200px 200px;
+            justify-content: flex-start;
+        }
+
+        .character-avatar {
+            border-radius: 9999px;
+            overflow: hidden;
+            isolation: isolate;
+            transform: translateZ(0);
+        }
+
+        .character-avatar-image {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 9999px;
+            clip-path: circle(50% at 50% 50%);
+            transform: translateZ(0);
+            backface-visibility: hidden;
+        }
+
+        .preserve-lines { white-space: pre-wrap; }
+        
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-thumb { background: var(--color-scrollbar-thumb); border-radius: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+
+        /* --- PRINT MASTER OVERRIDE --- */
+        @media print {
+            @page { 
+                size: 1536px 2048px; 
+                margin: 0; 
+            }
+            body, html { 
+                background: white !important; 
+                overflow: visible !important;
+                height: auto !important;
+            }
+            #root, #root > div {
+                display: block !important;
+                height: auto !important;
+                overflow: visible !important;
+            }
+            .no-print { display: none !important; }
+            .canvas-viewport { 
+                padding: 0 !important; 
+                margin: 0 !important; 
+                display: block !important; 
+                background: white !important;
+                overflow: visible !important;
+                height: auto !important;
+                width: auto !important;
+            }
+            .page-wrapper { 
+                margin: 0 !important; 
+                padding: 0 !important; 
+                height: 2048px !important;
+                width: 1536px !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                display: block !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .page-wrapper:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+            .canvas-container { 
+                box-shadow: none !important; 
+                transform: none !important; 
+                margin: 0 !important; 
+                position: relative !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 1536px !important;
+                height: 2048px !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .title-card {
+                background: transparent !important;
+                border-color: transparent !important;
+                box-shadow: none !important;
+                backdrop-filter: none !important;
+            }
+            .title-heading {
+                color: var(--color-page-text) !important;
+            }
+            .title-subheading {
+                color: var(--color-page-text) !important;
+            }
+            .character-avatar {
+                -webkit-mask-image: -webkit-radial-gradient(white, black);
+                mask-image: radial-gradient(circle, white 99%, transparent 100%);
+                background: white !important;
+            }
+            .character-avatar-image {
+                -webkit-mask-image: -webkit-radial-gradient(white, black);
+                mask-image: radial-gradient(circle, white 99%, transparent 100%);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        const App = () => {
+            const STORAGE_KEY = "clio_astra_v3_4_data";
+            const COLOR_HEX = {
+                clioBorder: "#2DD4BF",
+                clioSound: "#14B8A6",
+                zipBorder: "#FB923C",
+                zipSound: "#F97316",
+                baronBorder: "#FED7AA",
+                baronSound: "#E11D48",
+                mistyBorder: "#FACC15",
+                mistySound: "#CA8A04",
+                sfxText: "#FB923C"
+            };
+            const PAGE_LAYOUT = {
+                width: 1536,
+                height: 2048,
+                topPadding: 250,
+                bottomBuffer: 200,
+                editorScale: 0.6
+            };
+            const COVER_IMAGE_STYLE = {
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "cover"
+            };
+            const PAGINATION_CONFIG = {
+                blockGap: 58,
+                sfxBaseHeight: 80,
+                sfxLineHeight: 30,
+                dialogueMinHeight: 160,
+                dialogueLineHeight: 40,
+                dialoguePadding: 30,
+                paragraphLineHeight: 50,
+                paragraphPadding: 15,
+                dialogueCharsPerLine: 40,
+                paragraphCharsPerLine: 50
+            };
+            const SUPPORTED_TAGS = new Set(['p', 's', 'sfx']);
+            const COVER_URL_STATUS = {
+                idle: 'idle',
+                checking: 'checking',
+                valid: 'valid',
+                invalid: 'invalid'
+            };
+            const EPUB_EXPORT_CONFIG = {
+                iconMediaType: 'image/png',
+                coverMediaType: 'image/jpeg',
+                coverQuality: 0.82,
+                coverMediaTypeWebp: 'image/webp',
+                coverQualityWebp: 0.88,
+                compressionLevel: 9,
+                imagesDir: 'images',
+                pagesDir: 'pages',
+                stylesheetPath: 'styles/book.css'
+            };
+
+            /** Picks EPUB-embedded raster format from URL (e.g. raw GitHub …/art.webp). Defaults to JPEG. */
+            const getEpubCoverRasterExport = (url) => {
+                const path = String(url || '').trim().split('?')[0].toLowerCase();
+                if (path.endsWith('.webp')) {
+                    return {
+                        fileExtension: 'webp',
+                        mediaType: EPUB_EXPORT_CONFIG.coverMediaTypeWebp,
+                        quality: EPUB_EXPORT_CONFIG.coverQualityWebp
+                    };
+                }
+                return {
+                    fileExtension: 'jpg',
+                    mediaType: EPUB_EXPORT_CONFIG.coverMediaType,
+                    quality: EPUB_EXPORT_CONFIG.coverQuality
+                };
+            };
+
+            /** GitHub file page (…/blob/branch/path) → raw.githubusercontent.com/…/branch/path — required for images not under /assets. */
+            const toDirectGithubRawUrl = (input) => {
+                const trimmed = String(input ?? '').trim();
+                if (!trimmed) return '';
+                try {
+                    const u = new URL(trimmed);
+                    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+                    if (host !== 'github.com') return trimmed;
+                    const segments = u.pathname.split('/').filter(Boolean);
+                    const blobIndex = segments.indexOf('blob');
+                    if (blobIndex < 2 || segments.length < blobIndex + 3) return trimmed;
+                    const owner = segments[0];
+                    const repo = segments[1];
+                    const ref = segments[blobIndex + 1];
+                    const pathInRepo = segments.slice(blobIndex + 2).join('/');
+                    if (!owner || !repo || !ref || !pathInRepo) return trimmed;
+                    return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${pathInRepo}`;
+                } catch {
+                    return trimmed;
+                }
+            };
+
+            const icons = Object.fromEntries(
+                Object.entries({
+                    cn: { name: "Clio", borderColor: COLOR_HEX.clioBorder, bg: "bg-teal-50", src: "https://raw.githubusercontent.com/raul-octavian/clio_astra_assets/main/clio_profile_neutral.webp", emoji: "👧", soundColor: COLOR_HEX.clioSound },
+                    cl: { name: "Clio", borderColor: COLOR_HEX.clioBorder, bg: "bg-teal-50", src: "https://raw.githubusercontent.com/raul-octavian/clio_astra_assets/main/clio_laughing.webp", emoji: "😆", soundColor: COLOR_HEX.clioSound },
+                    ct: { name: "Clio", borderColor: COLOR_HEX.clioBorder, bg: "bg-teal-50", src: "https://raw.githubusercontent.com/raul-octavian/clio_astra_assets/main/clio_thinking.webp", emoji: "🤔", soundColor: COLOR_HEX.clioSound },
+                    z: { name: "Zip", borderColor: COLOR_HEX.zipBorder, bg: "bg-orange-50", src: "https://raw.githubusercontent.com/raul-octavian/clio_astra_assets/main/zip_icon.webp", emoji: "🐿️", soundColor: COLOR_HEX.zipSound },
+                    b: { name: "Baron", borderColor: COLOR_HEX.baronBorder, bg: "bg-orange-100", src: "https://raw.githubusercontent.com/raul-octavian/clio_astra_assets/main/baron_icon.webp", emoji: "🐱", soundColor: COLOR_HEX.baronSound },
+                    m: { name: "Misty", borderColor: COLOR_HEX.mistyBorder, bg: "bg-yellow-50", src: "https://raw.githubusercontent.com/raul-octavian/clio_astra_assets/main/misty_icon.webp", emoji: "☁️", soundColor: COLOR_HEX.mistySound }
+                }).map(([key, meta]) => [key, { ...meta, src: toDirectGithubRawUrl(meta.src) }])
+            );
+
+            const CHARACTER_PROFILE_ORDER = ['cn', 'z', 'm', 'b'];
+            const CHARACTER_PROFILE_FIELD_MAP = {
+                cn: 'clioBio',
+                z: 'zipBio',
+                b: 'baronBio',
+                m: 'mistyBio'
+            };
+
+            const LEGACY_VOLUME_TITLE = `The Big Book of "Let's Find Out!": 20 Bedtime Adventures for Little Engineers.`;
+            const LEGACY_MULTILINE_VOLUME_TITLE = `The Big Book of "Let's Find Out!"
+20 Bedtime Adventures for Little Engineers.`;
+            const DEFAULT_VOLUME_TITLE = `The Big Book of "Let's Find Out!"`;
+            const DEFAULT_VOLUME_SUBTITLE = `20 Bedtime Adventures for Little Engineers.`;
+
+            const resolveVolumeFields = (overrides = {}) => {
+                const rawTitle = typeof overrides.volumeTitle === 'string' ? overrides.volumeTitle.trim() : '';
+                const rawSubtitle = typeof overrides.volumeSubtitle === 'string' ? overrides.volumeSubtitle.trim() : '';
+
+                if (!rawTitle) {
+                    return {
+                        volumeTitle: DEFAULT_VOLUME_TITLE,
+                        volumeSubtitle: rawSubtitle || DEFAULT_VOLUME_SUBTITLE
+                    };
+                }
+
+                if (!rawSubtitle && (rawTitle === LEGACY_VOLUME_TITLE || rawTitle === LEGACY_MULTILINE_VOLUME_TITLE)) {
+                    return {
+                        volumeTitle: DEFAULT_VOLUME_TITLE,
+                        volumeSubtitle: DEFAULT_VOLUME_SUBTITLE
+                    };
+                }
+
+                return {
+                    volumeTitle: rawTitle,
+                    volumeSubtitle: rawSubtitle
+                };
+            };
+
+            const createBookSettings = (overrides = {}) => {
+                const { volumeTitle, volumeSubtitle } = resolveVolumeFields(overrides);
+                return ({
+                seriesTitle: typeof overrides.seriesTitle === 'string' && overrides.seriesTitle.trim() ? overrides.seriesTitle : "Clio Astra Adventures",
+                volumeTitle,
+                volumeSubtitle,
+                author: typeof overrides.author === 'string' && overrides.author.trim() ? overrides.author : "Octavian Albu",
+                publisher: typeof overrides.publisher === 'string' && overrides.publisher.trim() ? overrides.publisher : `Printed in Denmark
+Digital Edition`,
+                language: typeof overrides.language === 'string' && overrides.language.trim() ? overrides.language : 'en',
+                coverImage: typeof overrides.coverImage === 'string' ? toDirectGithubRawUrl(overrides.coverImage) : "",
+                categoriesText: typeof overrides.categoriesText === 'string' && overrides.categoriesText.trim() ? overrides.categoriesText : `STEM for Kids, Children's Engineering Books, Squirrel Stories, Bedtime Treasuries`,
+                includeDedicationPage: overrides.includeDedicationPage !== false,
+                dedicationText: typeof overrides.dedicationText === 'string' && overrides.dedicationText.trim() ? overrides.dedicationText : `For my daughter, my favorite little engineer. And for every child who looks at a pile of "junk" and sees an invention waiting to happen. May your hair always be messy and your heart always be curious.`,
+                includeTableOfContentsPage: overrides.includeTableOfContentsPage !== false,
+                includeCharacterProfilesPage: overrides.includeCharacterProfilesPage !== false,
+                characterProfilesTitle: typeof overrides.characterProfilesTitle === 'string' && overrides.characterProfilesTitle.trim() ? overrides.characterProfilesTitle : "Meet the Team",
+                clioBio: typeof overrides.clioBio === 'string' && overrides.clioBio.trim() ? overrides.clioBio : `The team's chief engineer. She has very messy red hair, a utility belt full of tools, and a brilliant plan for every puzzle. Her favorite phrase is: "Let's find out!"`,
+                zipBio: typeof overrides.zipBio === 'string' && overrides.zipBio.trim() ? overrides.zipBio : `A brave orange squirrel with a yellow scarf and a backpack full of treasures. He might be small and prone to "Code Red" panics, but his heart is as big as an oak tree.`,
+                baronBio: typeof overrides.baronBio === 'string' && overrides.baronBio.trim() ? overrides.baronBio : `A giant, fluffy ginger cat with calm green eyes. To Zip, he is a sleeping dragon, but deep down, he just wants a warm sunbeam and a good cardboard box.`,
+                mistyBio: typeof overrides.mistyBio === 'string' && overrides.mistyBio.trim() ? overrides.mistyBio : `A magical cloud sprite who feels things deeply. When he's happy, he glows yellow; when he's sad, it rains! He teaches the team that emotions are just another part of the puzzle.`,
+                includeStemGlossaryPage: overrides.includeStemGlossaryPage !== false,
+                glossaryTitle: typeof overrides.glossaryTitle === 'string' && overrides.glossaryTitle.trim() ? overrides.glossaryTitle : `The "Let's Find Out" STEM Glossary`,
+                glossaryText: typeof overrides.glossaryText === 'string' && overrides.glossaryText.trim() ? overrides.glossaryText : `Lever: A simple machine (like a seesaw) used to lift heavy things with very little effort. (Used in: The Stuck Cat)
+Friction & Grip: The resistance that happens when two things rub together. Bumpy surfaces "grab" better than smooth ones! (Used in: The Slippery Rescue)
+Counter-weight: A heavy object used to balance or slow down a movement, like a brake. (Used in: Baron's Big Block)
+Reflection: What happens when light hits a shiny surface and bounces back. (Used in: The Red Dot Mystery)
+Static Electricity: Tiny sparks that happen when things get extra excited or rub against a rug. (Used in: The Red Spark Scramble)
+Wind Power: Using the air to push objects, like a strong gust moving a cloud. (Used in: The Great Windy Rescue)
+Structural Stability: Building a wide, strong base to keep a tower from falling over. (Used in: The Wobbly Tower)
+Pulley: A wheel with a string that helps move things up and down easily. (Used in: Baron's Big Block)
+Elastic Potential Energy: Storing energy by stretching something, then letting it go to launch an object! (Used in: The Great Bird Feeder Heist)
+Gravity: The force that pulls things down toward the ground. (Used in: The Great Feeder Fill-Up)
+Structural Beams: Using long, strong objects to hold up a roof or a bridge. (Used in: The Great Pencil Heist)
+Material Science (Textures): Comparing how things feel (soft, rough, crinkly) to find the right tool for a job. (Used in: The Fluffiest Nest)
+Sound Dampening: Using soft materials to soak up noise so things stay quiet. (Used in: The Nap Trap)
+Aerodynamics & Shielding: Finding ways to block the wind so a light object doesn't blow away. (Used in: The Great Windy Rescue)
+Observation & Evidence: Looking for clues (like footprints or crumbs) to solve a mystery. (Used in: The Missing Collar Key, The Trail of Crumbs)
+Navigation: Using a "lifeline" (like a piece of string) to find your way back if you get lost. (Used in: The Green Fog Maze)
+Acoustics: Understanding how sounds can be loud and sharp or soft and quiet. (Used in: The Loudest Noise)`,
+                includeCopyrightPage: overrides.includeCopyrightPage !== false,
+                isbn: typeof overrides.isbn === 'string' ? overrides.isbn : "",
+                copyrightNotice: typeof overrides.copyrightNotice === 'string' && overrides.copyrightNotice.trim() ? overrides.copyrightNotice : `© 2026 Clio Astra Adventures.
+All rights reserved.
+
+Written and Illustrated by Octavian Albu
+
+No part of this publication may be reproduced, stored in a retrieval system, or transmitted in any form or by any means, electronic, mechanical, photocopying, recording, or otherwise, without prior permission.`,
+                noAiTrainingClause: typeof overrides.noAiTrainingClause === 'string' && overrides.noAiTrainingClause.trim() ? overrides.noAiTrainingClause : `No AI Training: This work may not be used for the purpose of training artificial intelligence models.`
+            });
+            };
+
+            const clampStoryCoverNumber = (value, fallback, min, max) => {
+                const n = typeof value === 'number' && Number.isFinite(value) ? value : parseFloat(String(value ?? '').trim());
+                if (!Number.isFinite(n)) return fallback;
+                return Math.min(max, Math.max(min, n));
+            };
+
+            const getStoryCoverLayout = (story) => ({
+                scale: clampStoryCoverNumber(story?.coverImageScale, 100, 5, 400),
+                posX: clampStoryCoverNumber(story?.coverImagePosX, 50, 0, 100),
+                posY: clampStoryCoverNumber(story?.coverImagePosY, 50, 0, 100)
+            });
+
+            const getStoryTitleCoverBleedStyle = (story) => {
+                const url = toDirectGithubRawUrl(story?.coverImage);
+                if (!url) return null;
+                const { scale, posX, posY } = getStoryCoverLayout(story);
+                return {
+                    backgroundColor: '#ffffff',
+                    backgroundImage: `url(${url})`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundSize: `${scale}% auto`,
+                    backgroundPosition: `${posX}% ${posY}%`
+                };
+            };
+
+            const createStory = (overrides = {}) => ({
+                id: overrides.id ?? Date.now(),
+                title: typeof overrides.title === 'string' && overrides.title.trim() ? overrides.title : "UNTITLED",
+                theme: overrides.theme === 'light' ? 'light' : 'dark',
+                coverImage: typeof overrides.coverImage === 'string' ? toDirectGithubRawUrl(overrides.coverImage) : "",
+                coverImageScale: clampStoryCoverNumber(overrides.coverImageScale, 100, 5, 400),
+                coverImagePosX: clampStoryCoverNumber(overrides.coverImagePosX, 50, 0, 100),
+                coverImagePosY: clampStoryCoverNumber(overrides.coverImagePosY, 50, 0, 100),
+                masterContent: typeof overrides.masterContent === 'string' ? overrides.masterContent : "p: Start typing here..."
+            });
+
+            const normalizeStories = (inputStories) => {
+                if (!Array.isArray(inputStories)) return [];
+                const importStamp = Date.now();
+                return inputStories
+                    .map((story, index) => {
+                        if (!story || typeof story !== 'object' || Array.isArray(story)) return null;
+                        return createStory({
+                            ...story,
+                            id: story.id ?? `imported-${importStamp}-${index}`
+                        });
+                    })
+                    .filter(Boolean);
+            };
+
+            const normalizeAppData = (input) => {
+                if (Array.isArray(input)) {
+                    return {
+                        bookSettings: createBookSettings(),
+                        stories: normalizeStories(input)
+                    };
+                }
+                if (!input || typeof input !== 'object' || Array.isArray(input)) {
+                    return {
+                        bookSettings: createBookSettings(),
+                        stories: []
+                    };
+                }
+                return {
+                    bookSettings: createBookSettings(input.bookSettings ?? input.bookMetadata ?? input.book ?? {}),
+                    stories: normalizeStories(input.stories)
+                };
+            };
+
+            const getInitialData = () => {
+                let saved = null;
+                try {
+                    saved = localStorage.getItem(STORAGE_KEY);
+                } catch (error) {
+                    console.warn("Storage read unavailable", error);
+                }
+                if (saved) {
+                    try {
+                        const parsed = JSON.parse(saved);
+                        const normalizedAppData = normalizeAppData(parsed);
+                        if (normalizedAppData.stories.length > 0) return normalizedAppData;
+                    } catch (e) {
+                        console.error("Data recovery failed", e);
+                    }
+                }
+                return {
+                    bookSettings: createBookSettings(),
+                    stories: [createStory({
+                        id: Date.now(),
+                        title: "THE STUCK CAT",
+                        masterContent: "p: The garden was sunny and green.\ns: WHOOSH!\nz: \"Catch me if you can!\"\nzs: SCAMPER SCAMPER\ncn: \"Wait for me!\"\ncns: CLICK-CLACK"
+                    })]
+                };
+            };
+
+            const initialAppData = useMemo(getInitialData, []);
+            const [bookSettings, setBookSettings] = useState(initialAppData.bookSettings);
+            const [stories, setStories] = useState(initialAppData.stories);
+            const [selectedStoryIndex, setSelectedStoryIndex] = useState(0);
+            const [isExporting, setIsExporting] = useState(false);
+            const [isExportingEpub, setIsExportingEpub] = useState(false);
+            const [coverImageStatus, setCoverImageStatus] = useState({ state: COVER_URL_STATUS.idle, message: 'Paste a GitHub file link or raw image URL.' });
+            const fileInputRef = useRef(null);
+            const viewportRef = useRef(null);
+
+            useEffect(() => {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ bookSettings, stories }));
+                } catch (error) {
+                    console.warn("Storage write unavailable", error);
+                }
+            }, [bookSettings, stories]);
+
+            useEffect(() => {
+                const handleAfterPrint = () => setIsExporting(false);
+                window.addEventListener('afterprint', handleAfterPrint);
+                return () => {
+                    window.removeEventListener('afterprint', handleAfterPrint);
+                };
+            }, []);
+
+            useEffect(() => {
+                const coverUrl = toDirectGithubRawUrl(bookSettings?.coverImage || '');
+                if (!coverUrl) {
+                    setCoverImageStatus({ state: COVER_URL_STATUS.idle, message: 'Paste a GitHub file link or raw image URL (blob links are converted automatically).' });
+                    return;
+                }
+
+                try {
+                    const parsedUrl = new URL(coverUrl);
+                    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+                        throw new Error('Cover URL must start with http:// or https://');
+                    }
+                } catch (error) {
+                    setCoverImageStatus({ state: COVER_URL_STATUS.invalid, message: 'Enter a valid image URL.' });
+                    return;
+                }
+
+                let cancelled = false;
+                const validationImage = new Image();
+                setCoverImageStatus({ state: COVER_URL_STATUS.checking, message: 'Checking image URL...' });
+
+                validationImage.onload = () => {
+                    if (!cancelled) {
+                        setCoverImageStatus({ state: COVER_URL_STATUS.valid, message: 'Image URL is valid.' });
+                    }
+                };
+
+                validationImage.onerror = () => {
+                    if (!cancelled) {
+                        setCoverImageStatus({ state: COVER_URL_STATUS.invalid, message: 'Image failed to load. Use the raw file URL, or paste the GitHub blob page link to convert.' });
+                    }
+                };
+
+                validationImage.src = coverUrl;
+
+                return () => {
+                    cancelled = true;
+                    validationImage.onload = null;
+                    validationImage.onerror = null;
+                };
+            }, [bookSettings?.coverImage]);
+
+            const waitForPrintAssets = async () => {
+                const images = Array.from(document.querySelectorAll('.canvas-container img'));
+                const imagePromises = images.map((img) => {
+                    if (img.complete) {
+                        if (img.naturalWidth > 0 && typeof img.decode === 'function') {
+                            return img.decode().catch(() => {});
+                        }
+                        return Promise.resolve();
+                    }
+                    return new Promise((resolve) => {
+                        const done = () => resolve();
+                        img.addEventListener('load', done, { once: true });
+                        img.addEventListener('error', done, { once: true });
+                    });
+                });
+                const bookCoverDirect = toDirectGithubRawUrl(bookSettings?.coverImage || '');
+                if (bookCoverDirect) {
+                    const coverImage = new Image();
+                    coverImage.src = bookCoverDirect;
+                    imagePromises.push(
+                        typeof coverImage.decode === 'function'
+                            ? coverImage.decode().catch(() => {})
+                            : new Promise((resolve) => {
+                                coverImage.addEventListener('load', resolve, { once: true });
+                                coverImage.addEventListener('error', resolve, { once: true });
+                            })
+                    );
+                }
+                const active = stories[selectedStoryIndex] || stories[0];
+                const storyCoverDirect = toDirectGithubRawUrl(active?.coverImage || '');
+                if (storyCoverDirect) {
+                    const storyCover = new Image();
+                    storyCover.src = storyCoverDirect;
+                    imagePromises.push(
+                        typeof storyCover.decode === 'function'
+                            ? storyCover.decode().catch(() => {})
+                            : new Promise((resolve) => {
+                                storyCover.addEventListener('load', resolve, { once: true });
+                                storyCover.addEventListener('error', resolve, { once: true });
+                            })
+                    );
+                }
+                await Promise.all(imagePromises);
+            };
+
+            const activeStory = stories[selectedStoryIndex] || stories[0];
+
+            const paginateStoryContent = (masterContent) => {
+                if (!masterContent) return [[]];
+
+                const lines = masterContent.split('\n');
+                const blocks = [];
+                let currentBlock = null;
+                let blockSequence = 0;
+                const nextBlockId = () => `block-${blockSequence++}`;
+
+                lines.forEach((line) => {
+                    const trimmed = line.trim();
+                    if (!trimmed) return;
+
+                    const separatorIndex = line.indexOf(':');
+                    const rawTag = separatorIndex !== -1 ? line.substring(0, separatorIndex).trim().toLowerCase() : null;
+                    const isCharSound = rawTag && rawTag.endsWith('s') && icons[rawTag.slice(0, -1)];
+                    const charKey = isCharSound ? rawTag.slice(0, -1) : rawTag;
+
+                    if (icons[charKey] || SUPPORTED_TAGS.has(rawTag)) {
+                        currentBlock = {
+                            type: icons[charKey] ? charKey : (rawTag === 'p' ? 'p' : 's'),
+                            isSound: isCharSound || rawTag === 's' || rawTag === 'sfx',
+                            content: line.substring(separatorIndex + 1).trim(),
+                            id: nextBlockId()
+                        };
+                        blocks.push(currentBlock);
+                    } else if (currentBlock) {
+                        currentBlock.content += '\n' + line;
+                    } else {
+                        currentBlock = { type: 'p', isSound: false, content: line, id: nextBlockId() };
+                        blocks.push(currentBlock);
+                    }
+                });
+
+                const maxAllowedHeight = PAGE_LAYOUT.height - PAGE_LAYOUT.topPadding - PAGE_LAYOUT.bottomBuffer;
+                const pages = [];
+                let currentPageBlocks = [];
+                let currentPageHeight = 0;
+
+                blocks.forEach((block) => {
+                    let estimatedBlockHeight = 0;
+                    const contentLines = block.content.split('\n').length;
+                    const charCount = block.content.length;
+
+                    if (block.isSound && block.type === 's') {
+                        estimatedBlockHeight = PAGINATION_CONFIG.sfxBaseHeight + (contentLines * PAGINATION_CONFIG.sfxLineHeight);
+                    } else if (icons[block.type]) {
+                        const wrappedLines = Math.ceil(charCount / PAGINATION_CONFIG.dialogueCharsPerLine);
+                        estimatedBlockHeight = Math.max(
+                            PAGINATION_CONFIG.dialogueMinHeight,
+                            (Math.max(contentLines, wrappedLines) * PAGINATION_CONFIG.dialogueLineHeight) + PAGINATION_CONFIG.dialoguePadding
+                        );
+                    } else {
+                        const wrappedLines = Math.ceil(charCount / PAGINATION_CONFIG.paragraphCharsPerLine);
+                        estimatedBlockHeight = (Math.max(contentLines, wrappedLines) * PAGINATION_CONFIG.paragraphLineHeight) + PAGINATION_CONFIG.paragraphPadding;
+                    }
+
+                    estimatedBlockHeight += PAGINATION_CONFIG.blockGap;
+
+                    if (currentPageHeight + estimatedBlockHeight > maxAllowedHeight && currentPageBlocks.length > 0) {
+                        pages.push(currentPageBlocks);
+                        currentPageBlocks = [block];
+                        currentPageHeight = estimatedBlockHeight;
+                    } else {
+                        currentPageBlocks.push(block);
+                        currentPageHeight += estimatedBlockHeight;
+                    }
+                });
+
+                if (currentPageBlocks.length > 0) pages.push(currentPageBlocks);
+                return pages.length > 0 ? pages : [[]];
+            };
+
+            const paginatedPages = useMemo(() => paginateStoryContent(activeStory?.masterContent), [activeStory?.masterContent]);
+
+            const updateBookSetting = (key, value) => {
+                setBookSettings((previous) => ({ ...previous, [key]: value }));
+            };
+
+            const updateStory = (key, value) => {
+                setStories((previousStories) => previousStories.map((story, index) => (
+                    index === selectedStoryIndex ? { ...story, [key]: value } : story
+                )));
+            };
+
+            const moveStory = (storyIndex, direction) => {
+                const nextIndex = storyIndex + direction;
+                if (nextIndex < 0 || nextIndex >= stories.length) return;
+                setStories((previousStories) => {
+                    const nextStories = [...previousStories];
+                    [nextStories[storyIndex], nextStories[nextIndex]] = [nextStories[nextIndex], nextStories[storyIndex]];
+                    return nextStories;
+                });
+                setSelectedStoryIndex((currentIndex) => {
+                    if (currentIndex === storyIndex) return nextIndex;
+                    if (currentIndex === nextIndex) return storyIndex;
+                    return currentIndex;
+                });
+            };
+
+            const clearCoverImage = () => updateBookSetting('coverImage', "");
+
+            const clearStoryTitleCover = () => {
+                setStories((prev) => prev.map((story, index) => (
+                    index === selectedStoryIndex
+                        ? { ...story, coverImage: '', coverImageScale: 100, coverImagePosX: 50, coverImagePosY: 50 }
+                        : story
+                )));
+            };
+
+            const slugify = (value) => {
+                const slug = (value || '')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                return slug || 'clio-astra-story';
+            };
+
+            const escapeHtml = (value = '') => value
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+            const formatMultilineText = (value = '') => escapeHtml(value).replace(/\n/g, '<br />');
+            const buildEpubPageFileName = (pageNumber) => `page-${String(pageNumber).padStart(3, '0')}.xhtml`;
+            const parseMultilineItems = (value = '') => value.split('\n').map((item) => item.trim()).filter(Boolean);
+
+            const createCanvasBlob = (canvas, mediaType, quality) => new Promise((resolve, reject) => {
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(blob);
+                        return;
+                    }
+                    reject(new Error('Failed to encode image asset'));
+                }, mediaType, quality);
+            });
+
+            const fetchBlobFromUrl = async (url) => {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Failed to fetch asset: ${response.status} ${response.statusText}`);
+                return response.blob();
+            };
+
+            const loadImageFromBlob = (blob) => new Promise((resolve, reject) => {
+                const objectUrl = URL.createObjectURL(blob);
+                const image = new Image();
+                image.onload = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    resolve(image);
+                };
+                image.onerror = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    reject(new Error('Failed to decode image asset'));
+                };
+                image.src = objectUrl;
+            });
+
+            const buildEpubImageAsset = async ({ url, fileName, mediaType, quality, maxWidth, maxHeight }) => {
+                const sourceBlob = await fetchBlobFromUrl(url);
+                const image = await loadImageFromBlob(sourceBlob);
+                const widthRatio = maxWidth ? maxWidth / image.naturalWidth : 1;
+                const heightRatio = maxHeight ? maxHeight / image.naturalHeight : 1;
+                const scale = Math.min(1, widthRatio, heightRatio);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+                canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('Canvas context unavailable');
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                const outputBlob = await createCanvasBlob(canvas, mediaType, quality);
+                return { fileName, mediaType: outputBlob.type || mediaType, data: await outputBlob.arrayBuffer() };
+            };
+
+            const getFullVolumeTitle = () => [bookSettings.volumeTitle, bookSettings.volumeSubtitle].map((value) => typeof value === 'string' ? value.trim() : '').filter(Boolean).join(': ');
+
+            const getCharacterProfiles = () => CHARACTER_PROFILE_ORDER.map((key) => ({
+                key,
+                name: key === 'cn' ? 'Clio' : icons[key].name,
+                bio: bookSettings[CHARACTER_PROFILE_FIELD_MAP[key]]
+            }));
+
+            const buildEpubStylesheet = () => `
+html, body { margin: 0; padding: 0; width: ${PAGE_LAYOUT.width}px; height: ${PAGE_LAYOUT.height}px; }
+body { font-family: Arial, sans-serif; }
+.page { position: relative; width: ${PAGE_LAYOUT.width}px; height: ${PAGE_LAYOUT.height}px; overflow: hidden; background: #ffffff; }
+.full-bleed-bg { position: absolute; inset: 0; z-index: 0; background: #cbd5e1 center / cover no-repeat; display: flex; align-items: center; justify-content: center; }
+.content-layer { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding: ${PAGE_LAYOUT.topPadding}px 200px; }
+.cover-content, .story-title-content, .support-content { position: relative; z-index: 2; width: 100%; height: 100%; box-sizing: border-box; padding: 220px 180px; }
+.cover-content, .story-title-content { display: flex; flex-direction: column; align-items: center; text-align: center; }
+/* Volume cover: match app (content-layer--volume-cover) — absolute inset avoids reader flex/height quirks */
+.page--cover .cover-content {
+  position: absolute;
+  z-index: 1;
+  top: 80px;
+  left: 200px;
+  right: 200px;
+  width: auto;
+  height: auto;
+  max-height: none;
+  padding: 0;
+  margin: 0;
+  justify-content: flex-start;
+  align-items: center;
+}
+.story-title-content { justify-content: center; }
+.story-title-content.story-title-chapter { justify-content: flex-start; padding: 80px 200px 220px 200px; }
+.dedication-content { position: relative; z-index: 2; width: 100%; height: 100%; box-sizing: border-box; padding: 220px 180px; display: flex; align-items: center; justify-content: center; text-align: center; }
+.dedication-body { max-width: 1040px; margin: 0 auto; color: #1e293b; font-size: 42px; line-height: 1.5; font-style: italic; }
+.series-label { margin: 0 0 24px 0; color: #ffffff; font-size: 34px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+.cover-title, .story-title-heading { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 108px; font-weight: 900; line-height: 0.92; letter-spacing: -0.04em; text-transform: uppercase; }
+.cover-title { font-size: 88px; }
+.cover-subtitle, .story-title-subtitle { margin: 28px auto 0 auto; max-width: 820px; font-size: 40px; line-height: 1.2; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; text-align: center; }
+.cover-title { color: #ffffff; text-shadow: 0 12px 30px rgba(15, 23, 42, 0.4); }
+.cover-subtitle { color: rgba(255,255,255,0.92); text-shadow: 0 10px 24px rgba(15, 23, 42, 0.35); }
+.story-title-heading { color: #0f172a; }
+.story-title-subtitle { color: #334155; }
+.story-title-card, .cover-title-card {
+  padding: 48px 64px;
+  border-radius: 80px;
+  max-width: 1100px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.8);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.2);
+  -webkit-backdrop-filter: blur(40px);
+  backdrop-filter: blur(40px);
+}
+.cover-title-card .series-label { color: #475569; }
+.cover-title-card .cover-title { color: #0f172a; text-shadow: none; }
+.cover-title-card .cover-subtitle { color: #334155; text-shadow: none; }
+.placeholder-cover { color: #cbd5e1; font-size: 96px; font-weight: 900; text-transform: uppercase; opacity: 0.2; text-align: center; line-height: 1; transform: rotate(-15deg); }
+.support-title { margin: 0 0 28px 0; color: #0f172a; font-family: Georgia, 'Times New Roman', serif; font-size: 76px; font-weight: 900; line-height: 1; }
+.support-body, .copyright-body { color: #1e293b; font-size: 34px; line-height: 1.45; }
+.support-body p, .copyright-body p { margin: 0 0 22px 0; }
+.toc-list { margin-top: 28px; }
+.toc-row { display: flex; justify-content: space-between; gap: 24px; padding: 12px 0; border-bottom: 1px solid #e2e8f0; font-size: 30px; color: #1e293b; }
+.profile-row { display: flex; gap: 48px; align-items: flex-start; margin-top: 58px; }
+.profile-avatar { width: 150px; height: 150px; flex-shrink: 0; border-radius: 9999px; overflow: hidden; background: #ffffff; }
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 9999px; }
+.profile-name { margin: 0 0 10px 0; color: #0f172a; font-size: 38px; font-weight: 800; }
+.profile-bio { margin: 0; color: #1e293b; font-size: 30px; line-height: 1.4; }
+.glossary-list { margin-top: 24px; padding-left: 32px; }
+.glossary-list li { margin-bottom: 18px; color: #1e293b; font-size: 30px; line-height: 1.35; }
+.block-row { display: flex; gap: 48px; align-items: flex-start; }
+.avatar { position: relative; width: 160px; height: 160px; flex-shrink: 0; border-radius: 9999px; overflow: hidden; background: #ffffff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12); }
+.avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 9999px; }
+.dialogue-text, .paragraph-text, .character-sound, .sfx-text { margin: 0; white-space: pre-wrap; }
+.dialogue-text { padding-top: 32px; color: #0f172a; font-size: 36px; line-height: 1.4; }
+.paragraph-text { color: #1e293b; font-size: 36px; line-height: 1.5; }
+.character-sound { padding-top: 16px; font-family: 'Comic Sans MS', 'Trebuchet MS', cursive; font-size: 80px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; text-transform: lowercase; }
+.sfx { width: 100%; display: flex; justify-content: center; font-family: 'Comic Sans MS', 'Trebuchet MS', cursive; }
+.sfx-text { color: ${COLOR_HEX.sfxText}; font-size: 80px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; text-transform: lowercase; text-align: center; }
+.page-number { position: absolute; right: 200px; bottom: 100px; color: #cbd5e1; opacity: 0.5; font-size: 84px; font-style: italic; font-weight: 900; }
+`;
+
+            const renderEpubBlock = (block, index, pageBlocks, assetHrefByKey) => {
+                const previousBlock = index > 0 ? pageBlocks[index - 1] : null;
+                const marginTop = block.isSound && previousBlock?.isSound ? 20 : index === 0 ? 0 : PAGINATION_CONFIG.blockGap;
+                if (block.type === 's') {
+                    const horizontalOffset = index % 2 === 0 ? 60 : -60;
+                    return `
+<div class="sfx" style="margin-top:${marginTop}px; transform: translateX(${horizontalOffset}px);"><p class="sfx-text">${formatMultilineText(block.content)}</p></div>`;
+                }
+                const character = icons[block.type];
+                if (character) {
+                    const textClass = block.isSound ? 'character-sound' : 'dialogue-text';
+                    const inlineColor = block.isSound ? ` style="color:${character.soundColor};"` : '';
+                    return `
+<div class="block-row" style="margin-top:${marginTop}px;"><div class="avatar" style="border: 4px solid ${character.borderColor};"><img src="../${assetHrefByKey[block.type]}" alt="${escapeHtml(character.name)}" /></div><p class="${textClass}"${inlineColor}>${formatMultilineText(block.content)}</p></div>`;
+                }
+                return `<p class="paragraph-text" style="margin-top:${marginTop}px;">${formatMultilineText(block.content)}</p>`;
+            };
+
+            const buildBookCoverPageXhtml = (coverHref) => {
+                const coverStyle = coverHref ? ` style="background-image:url('../${coverHref}');"` : '';
+                const placeholderMarkup = coverHref ? '' : `<div class="placeholder-cover">${escapeHtml(bookSettings.volumeTitle || 'COVER')}<br />COVER ART</div>`;
+                const subtitleMarkup = bookSettings.volumeSubtitle.trim() ? `<p class="cover-subtitle">${escapeHtml(bookSettings.volumeSubtitle.trim())}</p>` : '';
+                return `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Cover')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--cover" epub:type="cover"><div class="full-bleed-bg"${coverStyle}>${placeholderMarkup}</div><div class="cover-content"><div class="cover-title-card"><p class="series-label">${escapeHtml(bookSettings.seriesTitle)}</p><h1 class="cover-title">${escapeHtml(bookSettings.volumeTitle)}</h1>${subtitleMarkup}</div></div></section></body></html>`;
+            };
+            const buildBookTitlePageXhtml = () => {
+                const subtitleMarkup = bookSettings.volumeSubtitle.trim() ? `<p class="story-title-subtitle">${escapeHtml(bookSettings.volumeSubtitle.trim())}</p>` : '';
+                return `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Title Page')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="story-title-content"><div class="story-title-card"><p class="series-label" style="color:#0f172a;">${escapeHtml(bookSettings.seriesTitle)}</p><h1 class="story-title-heading">${escapeHtml(bookSettings.volumeTitle)}</h1>${subtitleMarkup}</div></div></section></body></html>`;
+            };
+
+            const buildSupportPageXhtml = (title, bodyMarkup) => `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(title)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="support-content"><h1 class="support-title">${escapeHtml(title)}</h1>${bodyMarkup}</div></section></body></html>`;
+            const buildDedicationPageXhtml = () => `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Dedication</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="dedication-content"><div class="dedication-body">${parseMultilineItems(bookSettings.dedicationText).map((paragraph) => `<p>${formatMultilineText(paragraph)}</p>`).join('')}</div></div></section></body></html>`;
+
+            const buildCharacterProfilesPageXhtml = (assetHrefByKey) => buildSupportPageXhtml(bookSettings.characterProfilesTitle, `<div class="support-body">${getCharacterProfiles().map((profile) => `
+<div class="profile-row"><div class="profile-avatar" style="border:4px solid ${icons[profile.key].borderColor};"><img src="../${assetHrefByKey[profile.key]}" alt="${escapeHtml(profile.name)}" /></div><div><h2 class="profile-name">${escapeHtml(profile.name)}</h2><p class="profile-bio">${formatMultilineText(profile.bio)}</p></div></div>`).join('')}</div>`);
+
+            const buildTableOfContentsPageXhtml = (tocEntries) => buildSupportPageXhtml('Table of Contents', `<div class="toc-list">${tocEntries.map((entry) => `<div class="toc-row"><span>${escapeHtml(entry.title)}</span><span>${entry.pageNumber}</span></div>`).join('')}</div>`);
+            const buildGlossaryPageXhtml = () => buildSupportPageXhtml(bookSettings.glossaryTitle, `<ul class="glossary-list">${parseMultilineItems(bookSettings.glossaryText).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+            const buildCopyrightPageXhtml = () => buildSupportPageXhtml('Copyright', `<div class="copyright-body"><p>${escapeHtml(bookSettings.copyrightNotice)}</p>${bookSettings.isbn.trim() ? `<p>ISBN: ${escapeHtml(bookSettings.isbn.trim())}</p>` : ''}${bookSettings.publisher.trim() ? `<p>Publisher: ${escapeHtml(bookSettings.publisher.trim())}</p>` : ''}<p>${escapeHtml(bookSettings.noAiTrainingClause)}</p></div>`);
+            const buildStoryTitlePageXhtml = (story, embeddedCoverHref) => {
+                const { scale, posX, posY } = getStoryCoverLayout(story);
+                const bleedMarkup = embeddedCoverHref
+                    ? `<div class="full-bleed-bg" style="background-color:#ffffff;background-image:url('../${embeddedCoverHref}');background-repeat:no-repeat;background-size:${scale}% auto;background-position:${posX}% ${posY}%;"></div>`
+                    : '';
+                return `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(story.title)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page">${bleedMarkup}<div class="story-title-content story-title-chapter"><div class="story-title-card"><p class="series-label" style="color:#0f172a;">${escapeHtml(bookSettings.seriesTitle)}</p><h1 class="story-title-heading">${escapeHtml(story.title)}</h1></div></div></section></body></html>`;
+            };
+            const buildStoryPageXhtml = (story, pageBlocks, pageNumber, assetHrefByKey) => `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(story.title)} - Page ${pageNumber}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page" epub:type="bodymatter"><div class="content-layer">${pageBlocks.map((block, index) => renderEpubBlock(block, index, pageBlocks, assetHrefByKey)).join('')}<div class="page-number">${pageNumber}</div></div></section></body></html>`;
+            const buildNavDocument = (pageEntries) => `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || bookSettings.volumeTitle)} Navigation</title><meta charset="utf-8" /></head><body><nav epub:type="toc" id="toc"><h1>${escapeHtml(bookSettings.volumeTitle)}</h1><ol>${pageEntries.map((pageEntry) => `<li><a href="${pageEntry.href}">${escapeHtml(pageEntry.title)}</a></li>`).join('')}</ol></nav></body></html>`;
+
+            const buildPackageDocument = ({ bookId, modifiedAt, pageEntries, assetEntries, coverAssetHref }) => {
+                const subjectEntries = parseMultilineItems(bookSettings.categoriesText.replace(/,/g, '\n')).map((category) => `<dc:subject>${escapeHtml(category)}</dc:subject>`).join('\n    ');
+                const creatorEntry = bookSettings.author.trim() ? `<dc:creator>${escapeHtml(bookSettings.author.trim())}</dc:creator>` : '';
+                const publisherEntry = bookSettings.publisher.trim() ? `<dc:publisher>${escapeHtml(bookSettings.publisher.trim())}</dc:publisher>` : '';
+                const seriesEntry = bookSettings.seriesTitle.trim() ? `<meta property="belongs-to-collection" id="series-name">${escapeHtml(bookSettings.seriesTitle.trim())}</meta>\n    <meta refines="#series-name" property="collection-type">series</meta>` : '';
+                return `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0" xml:lang="${escapeHtml(bookSettings.language)}"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${escapeHtml(bookId)}</dc:identifier><dc:title>${escapeHtml(getFullVolumeTitle() || bookSettings.volumeTitle)}</dc:title><dc:language>${escapeHtml(bookSettings.language)}</dc:language>${creatorEntry}${publisherEntry}${subjectEntries}<meta property="dcterms:modified">${modifiedAt}</meta><meta property="rendition:layout">pre-paginated</meta><meta property="rendition:orientation">auto</meta><meta property="rendition:spread">none</meta>${seriesEntry}</metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" /><item id="book-css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" media-type="text/css" />${assetEntries.map((assetEntry) => `<item id="${assetEntry.id}" href="${assetEntry.href}" media-type="${assetEntry.mediaType}"${coverAssetHref === assetEntry.href ? ' properties="cover-image"' : ''} />`).join('')}${pageEntries.map((pageEntry) => `<item id="${pageEntry.id}" href="${pageEntry.href}" media-type="application/xhtml+xml" />`).join('')}</manifest><spine>${pageEntries.map((pageEntry) => `<itemref idref="${pageEntry.id}" />`).join('')}</spine></package>`;
+            };
+
+            const buildContainerXml = () => `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml" /></rootfiles></container>`;
+            const buildAppleDisplayOptions = () => `<?xml version="1.0" encoding="UTF-8"?>
+<display_options><platform name="*"><option name="fixed-layout">true</option><option name="open-to-spread">false</option></platform></display_options>`;
+
+            const runEpubExport = async () => {
+                if (typeof JSZip === 'undefined') {
+                    alert('EPUB exporter is unavailable. Refresh the page and try again.');
+                    return;
+                }
+                if (stories.length === 0) {
+                    alert('Add at least one story before exporting.');
+                    return;
+                }
+
+                setIsExportingEpub(true);
+                try {
+                    const zip = new JSZip();
+                    const exportSlug = slugify(getFullVolumeTitle() || bookSettings.seriesTitle);
+                    const modifiedAt = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                    const bookId = bookSettings.isbn.trim() || (globalThis.crypto?.randomUUID ? `urn:uuid:${globalThis.crypto.randomUUID()}` : `urn:uuid:clio-astra-${Date.now()}`);
+                    const storyBundles = stories.map((story) => ({ story, pages: paginateStoryContent(story.masterContent) }));
+                    const assetResults = await Promise.all(Object.entries(icons).map(async ([key, icon]) => [key, await buildEpubImageAsset({ url: icon.src, fileName: `${key}.png`, mediaType: EPUB_EXPORT_CONFIG.iconMediaType, quality: 1 })]));
+                    const assetByKey = Object.fromEntries(assetResults);
+                    const assetHrefByKey = Object.fromEntries(Object.entries(assetByKey).map(([key, asset]) => [key, `${EPUB_EXPORT_CONFIG.imagesDir}/${asset.fileName}`]));
+                    let coverAsset = null;
+                    const bookCoverDirectUrl = toDirectGithubRawUrl(bookSettings.coverImage || '');
+                    if (bookCoverDirectUrl) {
+                        const bookCoverRaster = getEpubCoverRasterExport(bookCoverDirectUrl);
+                        coverAsset = await buildEpubImageAsset({
+                            url: bookCoverDirectUrl,
+                            fileName: `cover.${bookCoverRaster.fileExtension}`,
+                            mediaType: bookCoverRaster.mediaType,
+                            quality: bookCoverRaster.quality,
+                            maxWidth: PAGE_LAYOUT.width,
+                            maxHeight: PAGE_LAYOUT.height
+                        });
+                    }
+
+                    let logicalPageNumber = 2;
+                    if (bookSettings.includeDedicationPage) logicalPageNumber += 1;
+                    if (bookSettings.includeTableOfContentsPage) logicalPageNumber += 1;
+                    if (bookSettings.includeCharacterProfilesPage) logicalPageNumber += 1;
+                    if (bookSettings.includeCopyrightPage) logicalPageNumber += 1;
+                    const storyStartPageNumbers = {};
+                    storyBundles.forEach((bundle) => {
+                        storyStartPageNumbers[bundle.story.id] = logicalPageNumber;
+                        logicalPageNumber += 1 + bundle.pages.length;
+                    });
+
+                    zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+                    zip.file('META-INF/container.xml', buildContainerXml());
+                    zip.file('META-INF/com.apple.ibooks.display-options.xml', buildAppleDisplayOptions());
+                    zip.file(`OEBPS/${EPUB_EXPORT_CONFIG.stylesheetPath}`, buildEpubStylesheet());
+
+                    const assetEntries = [];
+                    Object.entries(assetByKey).forEach(([key, asset]) => {
+                        const href = `${EPUB_EXPORT_CONFIG.imagesDir}/${asset.fileName}`;
+                        zip.file(`OEBPS/${href}`, asset.data);
+                        assetEntries.push({ id: `asset-${key}`, href, mediaType: asset.mediaType });
+                    });
+                    let coverAssetHref = null;
+                    if (coverAsset) {
+                        coverAssetHref = `${EPUB_EXPORT_CONFIG.imagesDir}/${coverAsset.fileName}`;
+                        zip.file(`OEBPS/${coverAssetHref}`, coverAsset.data);
+                        assetEntries.push({ id: 'asset-cover', href: coverAssetHref, mediaType: coverAsset.mediaType });
+                    }
+
+                    const storyTitleCoverAssetHrefByStoryId = {};
+                    for (let storyIdx = 0; storyIdx < storyBundles.length; storyIdx += 1) {
+                        const story = storyBundles[storyIdx].story;
+                        const rawUrl = toDirectGithubRawUrl(typeof story.coverImage === 'string' ? story.coverImage : '');
+                        if (!rawUrl) continue;
+                        try {
+                            const raster = getEpubCoverRasterExport(rawUrl);
+                            const fileName = `story-title-${storyIdx}.${raster.fileExtension}`;
+                            const asset = await buildEpubImageAsset({
+                                url: rawUrl,
+                                fileName,
+                                mediaType: raster.mediaType,
+                                quality: raster.quality,
+                                maxWidth: PAGE_LAYOUT.width * 2,
+                                maxHeight: PAGE_LAYOUT.height * 2
+                            });
+                            const href = `${EPUB_EXPORT_CONFIG.imagesDir}/${asset.fileName}`;
+                            zip.file(`OEBPS/${href}`, asset.data);
+                            assetEntries.push({ id: `asset-story-title-${storyIdx}`, href, mediaType: asset.mediaType });
+                            storyTitleCoverAssetHrefByStoryId[story.id] = href;
+                        } catch (coverErr) {
+                            console.warn('Story title cover export skipped', story.title, coverErr);
+                        }
+                    }
+
+                    const pageEntries = [];
+                    let physicalPageNumber = 1;
+                    const addPage = (title, markup) => {
+                        const href = `${EPUB_EXPORT_CONFIG.pagesDir}/${buildEpubPageFileName(physicalPageNumber)}`;
+                        const id = `page-${String(physicalPageNumber).padStart(3, '0')}`;
+                        zip.file(`OEBPS/${href}`, markup);
+                        pageEntries.push({ id, href, title });
+                        physicalPageNumber += 1;
+                    };
+
+                    addPage('Cover', buildBookCoverPageXhtml(coverAssetHref));
+                    addPage('Title Page', buildBookTitlePageXhtml());
+                    if (bookSettings.includeCopyrightPage) addPage('Copyright', buildCopyrightPageXhtml());
+                    if (bookSettings.includeDedicationPage) addPage('Dedication', buildDedicationPageXhtml());
+                    if (bookSettings.includeTableOfContentsPage) addPage('Table of Contents', buildTableOfContentsPageXhtml(storyBundles.map((bundle) => ({ title: bundle.story.title, pageNumber: storyStartPageNumbers[bundle.story.id] }))));
+                    if (bookSettings.includeCharacterProfilesPage) addPage(bookSettings.characterProfilesTitle, buildCharacterProfilesPageXhtml(assetHrefByKey));
+                    storyBundles.forEach((bundle) => {
+                        addPage(bundle.story.title, buildStoryTitlePageXhtml(bundle.story, storyTitleCoverAssetHrefByStoryId[bundle.story.id]));
+                        bundle.pages.forEach((pageBlocks, index) => addPage(`${bundle.story.title} ${index + 1}`, buildStoryPageXhtml(bundle.story, pageBlocks, storyStartPageNumbers[bundle.story.id] + 1 + index, assetHrefByKey)));
+                    });
+                    if (bookSettings.includeStemGlossaryPage) addPage(bookSettings.glossaryTitle, buildGlossaryPageXhtml());
+
+                    zip.file('OEBPS/nav.xhtml', buildNavDocument(pageEntries));
+                    zip.file('OEBPS/package.opf', buildPackageDocument({ bookId, modifiedAt, pageEntries, assetEntries, coverAssetHref }));
+
+                    const epubBlob = await zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip', compression: 'DEFLATE', compressionOptions: { level: EPUB_EXPORT_CONFIG.compressionLevel } });
+                    const downloadUrl = URL.createObjectURL(epubBlob);
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = `${exportSlug}.epub`;
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+                } catch (error) {
+                    console.error('EPUB export failed', error);
+                    alert(`EPUB export failed: ${error.message}`);
+                } finally {
+                    setIsExportingEpub(false);
+                }
+            };
+
+            const renderBlock = (block, index, pageBlocks) => {
+                const prevBlock = index > 0 ? pageBlocks[index - 1] : null;
+                const marginTop = (block.isSound && prevBlock?.isSound) ? '20px' : index === 0 ? '0px' : '58px';
+
+                if (block.type === 's') {
+                    return (
+                        <div key={block.id} style={{ marginTop, transform: `translateX(${index % 2 === 0 ? '60px' : '-60px'})`, fontFamily: "'Patrick Hand', cursive" }} className="w-full flex justify-center text-slate-900">
+                            <span className="text-[80px] font-bold tracking-tight lowercase select-none preserve-lines text-center" style={{ color: COLOR_HEX.sfxText }}>{block.content}</span>
+                        </div>
+                    );
+                }
+
+                const char = icons[block.type];
+                if (char) {
+                    return (
+                        <div key={block.id} className="flex gap-12 items-start" style={{ marginTop }}>
+                            <div className={`character-avatar w-[160px] h-[160px] shrink-0 rounded-full border-4 ${char.bg} flex items-center justify-center bg-white shadow-sm relative`} style={{ borderColor: char.borderColor }} role="img">
+                                <img src={char.src} alt="" className="character-avatar-image z-10" onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                                }} />
+                                <div className="absolute inset-0 hidden items-center justify-center text-7xl opacity-40 select-none">{char.emoji}</div>
+                            </div>
+                            <p className={`preserve-lines ${block.isSound ? 'text-[80px] font-bold tracking-tight lowercase pt-4' : 'text-[36px] leading-[1.4] text-slate-900 pt-8'}`} style={{ fontFamily: block.isSound ? "'Patrick Hand', cursive" : "'Tenor Sans', sans-serif", color: block.isSound ? char.soundColor : undefined }}>
+                                {block.content}
+                            </p>
+                        </div>
+                    );
+                }
+                return <p key={block.id} className="text-[36px] leading-[1.5] text-slate-800 preserve-lines" style={{ marginTop, fontFamily: "'Tenor Sans', sans-serif" }}>{block.content}</p>;
+            };
+
+            const previewStoryBundles = stories.map((story) => ({
+                story,
+                pages: paginateStoryContent(story.masterContent)
+            }));
+
+            const previewStoryStartPageNumbers = {};
+            let previewLogicalPageNumber = 2;
+            if (bookSettings.includeDedicationPage) previewLogicalPageNumber += 1;
+            if (bookSettings.includeTableOfContentsPage) previewLogicalPageNumber += 1;
+            if (bookSettings.includeCharacterProfilesPage) previewLogicalPageNumber += 1;
+            if (bookSettings.includeCopyrightPage) previewLogicalPageNumber += 1;
+            previewStoryBundles.forEach((bundle) => {
+                previewStoryStartPageNumbers[bundle.story.id] = previewLogicalPageNumber;
+                previewLogicalPageNumber += 1 + bundle.pages.length;
+            });
+
+            const activeStoryStartPageNumber = activeStory ? previewStoryStartPageNumbers[activeStory.id] : 0;
+            const tocEntries = previewStoryBundles.map((bundle) => ({
+                title: bundle.story.title,
+                pageNumber: previewStoryStartPageNumbers[bundle.story.id]
+            }));
+
+            const PreviewPageFrame = ({ children, backgroundImage, storyTitleCoverBleedStyle, showPageNumber = false, pageNumber }) => {
+                const isEditor = !isExporting;
+                const currentScale = isEditor ? PAGE_LAYOUT.editorScale : 1.0;
+                const wrappedW = PAGE_LAYOUT.width * currentScale;
+                const wrappedH = PAGE_LAYOUT.height * currentScale;
+
+                return (
+                    <div className="page-wrapper" style={{ width: wrappedW, height: wrappedH, marginBottom: isEditor ? '80px' : '0' }}>
+                        <div className="canvas-container flex flex-col" style={{ transform: isEditor ? `scale(${currentScale})` : 'none', transformOrigin: 'top left' }}>
+                            {backgroundImage && (
+                                <div className="full-bleed-bg" style={{ ...COVER_IMAGE_STYLE, backgroundImage: `url(${backgroundImage})` }} />
+                            )}
+                            {!backgroundImage && storyTitleCoverBleedStyle && (
+                                <div className="full-bleed-bg" style={storyTitleCoverBleedStyle} />
+                            )}
+                            <div className="content-layer">
+                                {children}
+                                {showPageNumber && <div className="absolute bottom-[100px] right-[200px] font-black text-7xl italic opacity-50 select-none text-slate-300">{pageNumber}</div>}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderParagraphGroup = (textValue, className = "text-[36px] leading-[1.5] text-slate-800") => (
+                <div className="space-y-6">
+                    {parseMultilineItems(textValue).map((paragraph, index) => (
+                        <p key={index} className={className} style={{ fontFamily: "'Tenor Sans', sans-serif" }}>{paragraph}</p>
+                    ))}
+                </div>
+            );
+
+            const renderBookTitlePreview = () => (
+                <PreviewPageFrame>
+                    <div className="flex-1 flex flex-col items-center justify-center text-center">
+                        <div className="title-card bg-white/80 border-white/40 backdrop-blur-2xl px-16 py-12 rounded-[80px] border-2 max-w-[1100px] shadow-2xl">
+                            <p className="text-[18px] font-bold uppercase tracking-[0.3em] mb-6 text-slate-700">{bookSettings.seriesTitle}</p>
+                            <h1 className="title-heading text-[88px] font-black tracking-tight uppercase leading-[0.9] text-slate-900" style={{ fontFamily: "'Playfair Display', serif" }}>{bookSettings.volumeTitle || "UNTITLED"}</h1>
+                            {bookSettings.volumeSubtitle?.trim() && <p className="title-subheading mt-7 max-w-[820px] mx-auto text-center text-[40px] font-bold uppercase tracking-[0.04em] leading-[1.2] text-slate-600">{bookSettings.volumeSubtitle.trim()}</p>}
+                        </div>
+                    </div>
+                </PreviewPageFrame>
+            );
+
+            const renderDedicationPreview = () => (
+                <PreviewPageFrame>
+                    <div className="flex-1 flex items-center justify-center text-center">
+                        <div className="max-w-[1040px]">
+                            {renderParagraphGroup(bookSettings.dedicationText, "text-[42px] leading-[1.5] text-slate-800 italic")}
+                        </div>
+                    </div>
+                </PreviewPageFrame>
+            );
+
+            const renderTocPreview = () => (
+                <PreviewPageFrame>
+                    <div>
+                        <h2 className="text-[76px] font-black text-slate-900 mb-10" style={{ fontFamily: "'Playfair Display', serif" }}>Table of Contents</h2>
+                        <div className="space-y-4">
+                            {tocEntries.map((entry) => (
+                                <div key={entry.title} className="flex justify-between gap-6 border-b border-slate-200 pb-3 text-[30px] text-slate-800">
+                                    <span>{entry.title}</span>
+                                    <span>{entry.pageNumber}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </PreviewPageFrame>
+            );
+
+            const renderCharacterProfilesPreview = () => (
+                <PreviewPageFrame>
+                    <div>
+                        <h2 className="text-[76px] font-black text-slate-900 mb-10" style={{ fontFamily: "'Playfair Display', serif" }}>{bookSettings.characterProfilesTitle}</h2>
+                        <div>
+                            {getCharacterProfiles().map((profile, index) => (
+                                <div key={profile.key} className="flex gap-12 items-start" style={{ marginTop: index === 0 ? 0 : `${PAGINATION_CONFIG.blockGap}px` }}>
+                                    <div className={`character-avatar w-[150px] h-[150px] shrink-0 rounded-full border-4 ${icons[profile.key].bg} flex items-center justify-center bg-white shadow-sm relative`} style={{ borderColor: icons[profile.key].borderColor }}>
+                                        <img src={icons[profile.key].src} alt={profile.name} className="character-avatar-image" onError={(e) => { e.target.style.display = 'none'; }} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[40px] font-black text-slate-900 mb-2">{profile.name}</h3>
+                                        <p className="text-[30px] leading-[1.4] text-slate-700" style={{ fontFamily: "'Tenor Sans', sans-serif" }}>{profile.bio}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </PreviewPageFrame>
+            );
+
+            const renderGlossaryPreview = () => (
+                <PreviewPageFrame>
+                    <div>
+                        <h2 className="text-[76px] font-black text-slate-900 mb-10" style={{ fontFamily: "'Playfair Display', serif" }}>{bookSettings.glossaryTitle}</h2>
+                        <div className="space-y-4">
+                            {parseMultilineItems(bookSettings.glossaryText).map((item, index) => (
+                                <p key={index} className="text-[28px] leading-[1.35] text-slate-800" style={{ fontFamily: "'Tenor Sans', sans-serif" }}>{item}</p>
+                            ))}
+                        </div>
+                    </div>
+                </PreviewPageFrame>
+            );
+
+            const renderCopyrightPreview = () => (
+                <PreviewPageFrame>
+                    <div className="space-y-8">
+                        <h2 className="text-[76px] font-black text-slate-900" style={{ fontFamily: "'Playfair Display', serif" }}>Copyright</h2>
+                        {renderParagraphGroup(bookSettings.copyrightNotice, "text-[30px] leading-[1.45] text-slate-800")}
+                        {bookSettings.isbn && <p className="text-[30px] leading-[1.45] text-slate-800">ISBN: {bookSettings.isbn}</p>}
+                        {renderParagraphGroup(bookSettings.publisher, "text-[30px] leading-[1.45] text-slate-800")}
+                        {renderParagraphGroup(bookSettings.noAiTrainingClause, "text-[28px] leading-[1.45] text-slate-700")}
+                    </div>
+                </PreviewPageFrame>
+            );
+
+            const renderStoryTitlePreview = () => (
+                <PreviewPageFrame storyTitleCoverBleedStyle={activeStory ? getStoryTitleCoverBleedStyle(activeStory) : null}>
+                    <div className="flex-1 flex flex-col items-center justify-start pt-20 text-center">
+                        <div className="title-card bg-white/80 border-white/40 backdrop-blur-2xl px-16 py-12 rounded-[80px] border-2 max-w-[1100px] shadow-2xl">
+                            <p className="text-[18px] font-bold uppercase tracking-[0.3em] mb-6 text-slate-700">{bookSettings.seriesTitle}</p>
+                            <h1 className="title-heading text-[110px] font-black tracking-tight uppercase leading-[0.9] text-slate-900" style={{ fontFamily: "'Playfair Display', serif" }}>{activeStory?.title || "UNTITLED"}</h1>
+                        </div>
+                    </div>
+                </PreviewPageFrame>
+            );
+
+            const PageFrame = ({ children, isTitle, story, pNum }) => {
+                const isEditor = !isExporting;
+                const currentScale = isEditor ? PAGE_LAYOUT.editorScale : 1.0;
+                const wrappedW = PAGE_LAYOUT.width * currentScale;
+                const wrappedH = PAGE_LAYOUT.height * currentScale;
+                const bookCoverDisplayUrl = toDirectGithubRawUrl(bookSettings.coverImage || '');
+
+                return (
+                    <div className="page-wrapper" style={{ 
+                        width: wrappedW, 
+                        height: wrappedH, 
+                        marginBottom: isEditor ? '80px' : '0',
+                    }}>
+                        <div className="canvas-container flex flex-col" style={{ 
+                            transform: isEditor ? `scale(${currentScale})` : 'none', 
+                            transformOrigin: 'top left' 
+                        }}>
+                            {isTitle && (
+                                <div className="full-bleed-bg" style={bookCoverDisplayUrl ? { ...COVER_IMAGE_STYLE, backgroundImage: `url(${bookCoverDisplayUrl})` } : undefined}>
+                                    {!bookCoverDisplayUrl && (
+                                        <div className="text-slate-300 font-black text-8xl uppercase opacity-20 rotate-[-15deg] select-none text-center px-24 leading-none">
+                                            {bookSettings.volumeTitle || "STORY"}<br/>COVER ART
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            <div className={`content-layer${isTitle ? ' content-layer--volume-cover' : ''}`}>
+                                {isTitle ? (
+                                    <div className="flex w-full flex-col items-center justify-start">
+                                        <div className={`title-card ${activeStory?.theme === 'light' ? 'bg-black/50 border-black/10' : 'bg-white/50 border-white/20'} backdrop-blur-2xl px-16 py-12 rounded-[80px] border-2 text-center max-w-[1100px] shadow-2xl`}>
+                                            <p className={`text-[18px] font-bold uppercase tracking-[0.3em] mb-6 ${activeStory?.theme === 'light' ? 'text-white/80' : 'text-slate-700'}`}>{bookSettings.seriesTitle}</p>
+                                            <h1 className={`title-heading text-[88px] font-black tracking-tight uppercase leading-[0.9] ${activeStory?.theme === 'light' ? 'text-white' : 'text-slate-900'}`} style={{ fontFamily: "'Playfair Display', serif" }}>{bookSettings.volumeTitle || "UNTITLED"}</h1>
+                                            {bookSettings.volumeSubtitle?.trim() && <p className={`title-subheading mt-7 max-w-[820px] mx-auto text-center text-[40px] font-bold uppercase tracking-[0.04em] leading-[1.2] ${activeStory?.theme === 'light' ? 'text-white/85' : 'text-slate-600'}`}>{bookSettings.volumeSubtitle.trim()}</p>}
+                                        </div>
+                                    </div>
+                                ) : children}
+                                {!isTitle && <div className="absolute bottom-[100px] right-[200px] font-black text-7xl italic opacity-50 select-none text-slate-300">{pNum}</div>}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const runExport = () => {
+                setIsExporting(true);
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(async () => {
+                        await waitForPrintAssets();
+                        window.print();
+                    });
+                });
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden">
+                    {/* SIDEBAR */}
+                    <div className="no-print w-[460px] bg-white border-r border-slate-200 p-8 flex flex-col shadow-xl z-30 overflow-y-auto shrink-0">
+                        <div className="mb-6 pb-4 border-b">
+                            <h2 className="font-black text-slate-900 uppercase tracking-tighter text-xl italic mb-4 leading-none">Clio Studio 3.4</h2>
+                            <button onClick={runExport} className="w-full bg-green-600 text-white p-4 rounded-xl font-bold hover:bg-green-700 shadow-lg flex items-center justify-center gap-2 mb-3 hover:scale-[1.02] transition-transform">
+                                <span>📚</span> EXPORT FULL PDF
+                            </button>
+                            <button onClick={runEpubExport} disabled={isExportingEpub} className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold hover:bg-indigo-700 shadow-lg flex items-center justify-center gap-2 mb-4 hover:scale-[1.02] transition-transform disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100">
+                                <span>📦</span> {isExportingEpub ? 'BUILDING EPUB...' : 'EXPORT EPUB'}
+                            </button>
+                            <div className="flex gap-2">
+                                <button onClick={() => {
+                                    const dataStr = JSON.stringify({ bookSettings, stories }, null, 2);
+                                    const link = document.createElement('a');
+                                    const downloadUrl = URL.createObjectURL(new Blob([dataStr], { type: 'application/json' }));
+                                    link.href = downloadUrl;
+                                    link.download = `clio_project_v3.4.json`;
+                                    link.click();
+                                    setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+                                }} className="flex-1 bg-slate-800 text-white text-[10px] p-3 rounded-lg font-bold hover:bg-black">💾 SAVE</button>
+                                <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-slate-100 text-slate-600 text-[10px] p-3 rounded-lg font-bold border border-slate-200">📂 LOAD</button>
+                                <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = (ev) => {
+                                        try {
+                                            const parsed = JSON.parse(ev.target.result);
+                                            const normalizedAppData = normalizeAppData(parsed);
+                                            if (normalizedAppData.stories.length === 0) throw new Error("Invalid project format");
+                                            setBookSettings(normalizedAppData.bookSettings);
+                                            setStories(normalizedAppData.stories);
+                                            setSelectedStoryIndex(0);
+                                        } catch (err) {
+                                            console.error("Project import failed", err);
+                                            alert("Invalid project file");
+                                        } finally {
+                                            e.target.value = '';
+                                        }
+                                    };
+                                    reader.onerror = () => {
+                                        alert("Failed to read file");
+                                        e.target.value = '';
+                                    };
+                                    reader.readAsText(file);
+                                }} />
+                            </div>
+                        </div>
+
+                        <div className="space-y-6 flex-1">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest text-teal-600 font-black">Pixel Precise: 200px Buf</label>
+                                <button onClick={() => {
+                                    const newS = createStory({ id: Date.now(), title: "NEW STORY" });
+                                    setStories([...stories, newS]);
+                                    setSelectedStoryIndex(stories.length);
+                                }} className="text-[10px] bg-teal-600 text-white px-3 py-1 rounded-full font-bold hover:bg-teal-700">+ Story</button>
+                            </div>
+
+                            <div className="space-y-2 max-h-56 overflow-y-auto bg-slate-50 p-2 rounded-xl border">
+                                {stories.map((s, idx) => (
+                                    <div key={s.id} className="flex gap-2">
+                                        <button onClick={() => { setSelectedStoryIndex(idx); if(viewportRef.current) viewportRef.current.scrollTop = 0; }} className={`flex-1 text-left p-3 rounded-lg text-xs font-bold transition-all ${selectedStoryIndex === idx ? 'bg-teal-600 text-white shadow-md' : 'bg-white border hover:border-teal-400'}`}>
+                                            {idx + 1}. {s.title}
+                                        </button>
+                                        <div className="flex flex-col gap-1">
+                                            <button onClick={() => moveStory(idx, -1)} disabled={idx === 0} className="w-8 h-8 rounded-lg border bg-white text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed">↑</button>
+                                            <button onClick={() => moveStory(idx, 1)} disabled={idx === stories.length - 1} className="w-8 h-8 rounded-lg border bg-white text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed">↓</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {activeStory && (
+                                <div className="pt-4 border-t space-y-6">
+                                    <div className="space-y-4">
+                                        <h3 className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Book Metadata</h3>
+                                        <input className="w-full border-2 border-slate-100 rounded-xl p-3 font-bold text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.seriesTitle} onChange={(e) => updateBookSetting('seriesTitle', e.target.value)} placeholder="Series Title" />
+                                        <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm font-bold text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={2} value={bookSettings.volumeTitle} onChange={(e) => updateBookSetting('volumeTitle', e.target.value)} placeholder="Volume Title" />
+                                        <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={2} value={bookSettings.volumeSubtitle || ''} onChange={(e) => updateBookSetting('volumeSubtitle', e.target.value)} placeholder="Volume Subtitle" />
+                                        <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.author} onChange={(e) => updateBookSetting('author', e.target.value)} placeholder="Author" />
+                                        <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.publisher} onChange={(e) => updateBookSetting('publisher', e.target.value)} placeholder="Publisher" />
+                                        <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.isbn} onChange={(e) => updateBookSetting('isbn', e.target.value)} placeholder="ISBN" />
+                                        <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={2} value={bookSettings.categoriesText} onChange={(e) => updateBookSetting('categoriesText', e.target.value)} placeholder="Categories (comma separated)" />
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block tracking-widest">Book Cover URL</label>
+                                            <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-xs font-medium text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.coverImage} onChange={(e) => updateBookSetting('coverImage', toDirectGithubRawUrl(e.target.value))} placeholder="https://github.com/raul-octavian/clio_astra_assets/blob/main/The_stuck_car.webp" />
+                                            <div className="flex gap-2 mt-2">
+                                                <button onClick={clearCoverImage} disabled={!bookSettings.coverImage} className="bg-white text-[10px] px-4 py-3 rounded-lg font-bold border border-slate-200 text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed">Clear</button>
+                                            </div>
+                                            <p className="mt-1 text-[10px] text-slate-400 leading-snug">Files on the default branch can live in the repo root (not only <span className="font-mono">/assets</span>). Paste the normal GitHub file page URL or a raw link; blob pages are rewritten to <span className="font-mono">raw.githubusercontent.com</span> automatically.</p>
+                                            <p className={`mt-2 text-[10px] italic ${coverImageStatus.state === COVER_URL_STATUS.valid ? 'text-emerald-600' : coverImageStatus.state === COVER_URL_STATUS.invalid ? 'text-rose-600' : coverImageStatus.state === COVER_URL_STATUS.checking ? 'text-amber-600' : 'text-slate-400'}`}>{coverImageStatus.message}</p>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-2"><input type="checkbox" checked={bookSettings.includeDedicationPage} onChange={(e) => updateBookSetting('includeDedicationPage', e.target.checked)} />Dedication</label>
+                                            <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-2"><input type="checkbox" checked={bookSettings.includeTableOfContentsPage} onChange={(e) => updateBookSetting('includeTableOfContentsPage', e.target.checked)} />Table of Contents</label>
+                                            <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-2"><input type="checkbox" checked={bookSettings.includeCharacterProfilesPage} onChange={(e) => updateBookSetting('includeCharacterProfilesPage', e.target.checked)} />Character Profiles</label>
+                                            <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-2"><input type="checkbox" checked={bookSettings.includeStemGlossaryPage} onChange={(e) => updateBookSetting('includeStemGlossaryPage', e.target.checked)} />STEM Glossary</label>
+                                            <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-2 col-span-2"><input type="checkbox" checked={bookSettings.includeCopyrightPage} onChange={(e) => updateBookSetting('includeCopyrightPage', e.target.checked)} />Copyright Page</label>
+                                        </div>
+                                        {bookSettings.includeDedicationPage && <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={3} value={bookSettings.dedicationText} onChange={(e) => updateBookSetting('dedicationText', e.target.value)} placeholder="Dedication text" />}
+                                        {bookSettings.includeCharacterProfilesPage && (
+                                            <div className="space-y-2">
+                                                <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm font-bold text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.characterProfilesTitle} onChange={(e) => updateBookSetting('characterProfilesTitle', e.target.value)} placeholder="Character Profiles Title" />
+                                                <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={3} value={bookSettings.clioBio} onChange={(e) => updateBookSetting('clioBio', e.target.value)} placeholder="Clio bio" />
+                                                <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={3} value={bookSettings.zipBio} onChange={(e) => updateBookSetting('zipBio', e.target.value)} placeholder="Zip bio" />
+                                                <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={3} value={bookSettings.baronBio} onChange={(e) => updateBookSetting('baronBio', e.target.value)} placeholder="Baron bio" />
+                                                <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={3} value={bookSettings.mistyBio} onChange={(e) => updateBookSetting('mistyBio', e.target.value)} placeholder="Misty bio" />
+                                            </div>
+                                        )}
+                                        {bookSettings.includeStemGlossaryPage && (
+                                            <div className="space-y-2">
+                                                <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm font-bold text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.glossaryTitle} onChange={(e) => updateBookSetting('glossaryTitle', e.target.value)} placeholder="Glossary Title" />
+                                                <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={6} value={bookSettings.glossaryText} onChange={(e) => updateBookSetting('glossaryText', e.target.value)} placeholder="One glossary term per line" />
+                                            </div>
+                                        )}
+                                        {bookSettings.includeCopyrightPage && (
+                                            <div className="space-y-2">
+                                                <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={3} value={bookSettings.copyrightNotice} onChange={(e) => updateBookSetting('copyrightNotice', e.target.value)} placeholder="Copyright notice" />
+                                                <textarea className="w-full border-2 border-slate-100 rounded-xl p-3 text-sm text-slate-900 focus:border-teal-500 outline-none leading-relaxed" rows={4} value={bookSettings.noAiTrainingClause} onChange={(e) => updateBookSetting('noAiTrainingClause', e.target.value)} placeholder="No AI training clause" />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="pt-4 border-t space-y-4">
+                                        <h3 className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Selected Story</h3>
+                                        <input className="w-full border-2 border-slate-100 rounded-xl p-3 font-bold text-slate-900 focus:border-teal-500 outline-none" value={activeStory.title} onChange={(e) => updateStory('title', e.target.value.toUpperCase())} placeholder="Title" />
+                                        <select value={activeStory.theme} onChange={(e) => updateStory('theme', e.target.value)} className="w-full p-2 text-xs border rounded-lg bg-white font-bold cursor-pointer">
+                                            <option value="dark">Story Title Theme: Dark</option>
+                                            <option value="light">Story Title Theme: Light</option>
+                                        </select>
+                                        <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                                            <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-widest">Story title cover image URL</label>
+                                            <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-xs text-slate-900 focus:border-teal-500 outline-none" value={activeStory.coverImage} onChange={(e) => updateStory('coverImage', toDirectGithubRawUrl(e.target.value))} placeholder="https://github.com/raul-octavian/clio_astra_assets/blob/main/The_stuck_car.webp" />
+                                            <p className="text-[10px] text-slate-500 leading-snug">Paste a GitHub file link (repo root or any folder) or a <span className="font-mono">raw.githubusercontent.com</span> URL. Blob links are converted automatically. WebP is kept in EPUB when the file ends in <span className="font-mono">.webp</span>. Scale is width as a percentage of the page; position is the anchor (50 / 50 = centered).</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <label className="flex flex-col gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                                                    Scale %
+                                                    <input type="number" min={5} max={400} step={1} className="border-2 border-slate-100 rounded-lg p-2 text-xs font-bold text-slate-900 focus:border-teal-500 outline-none bg-white" value={activeStory.coverImageScale} onChange={(e) => updateStory('coverImageScale', clampStoryCoverNumber(parseFloat(e.target.value), 100, 5, 400))} />
+                                                </label>
+                                                <label className="flex flex-col gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                                                    Pos X %
+                                                    <input type="number" min={0} max={100} step={0.5} className="border-2 border-slate-100 rounded-lg p-2 text-xs font-bold text-slate-900 focus:border-teal-500 outline-none bg-white" value={activeStory.coverImagePosX} onChange={(e) => updateStory('coverImagePosX', clampStoryCoverNumber(parseFloat(e.target.value), 50, 0, 100))} />
+                                                </label>
+                                                <label className="flex flex-col gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                                                    Pos Y %
+                                                    <input type="number" min={0} max={100} step={0.5} className="border-2 border-slate-100 rounded-lg p-2 text-xs font-bold text-slate-900 focus:border-teal-500 outline-none bg-white" value={activeStory.coverImagePosY} onChange={(e) => updateStory('coverImagePosY', clampStoryCoverNumber(parseFloat(e.target.value), 50, 0, 100))} />
+                                                </label>
+                                            </div>
+                                            <button type="button" onClick={clearStoryTitleCover} disabled={!activeStory.coverImage?.trim()} className="text-[10px] font-bold px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-teal-400 disabled:opacity-40 disabled:cursor-not-allowed">Clear story cover</button>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block tracking-widest">Story Content</label>
+                                            <textarea className="w-full border-2 border-slate-100 rounded-xl p-4 text-sm h-[400px] outline-none focus:border-teal-500 font-medium leading-relaxed" value={activeStory.masterContent} onChange={(e) => updateStory('masterContent', e.target.value)} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* VIEWPORT */}
+                    <div ref={viewportRef} className="canvas-viewport flex-1">
+                        <div className="flex flex-col items-center w-full min-h-full">
+                            <PageFrame isTitle story={activeStory} />
+                            {renderBookTitlePreview()}
+                            {bookSettings.includeCopyrightPage && renderCopyrightPreview()}
+                            {bookSettings.includeDedicationPage && renderDedicationPreview()}
+                            {bookSettings.includeTableOfContentsPage && renderTocPreview()}
+                            {bookSettings.includeCharacterProfilesPage && renderCharacterProfilesPreview()}
+                            {renderStoryTitlePreview()}
+                            {paginatedPages.map((pageBlocks, pIdx) => (
+                                <PageFrame key={pIdx} story={activeStory} pNum={activeStoryStartPageNumber + 1 + pIdx}>
+                                    <div className="flex-1 flex flex-col">
+                                        {pageBlocks.map((b, bIdx) => renderBlock(b, bIdx, pageBlocks))}
+                                    </div>
+                                </PageFrame>
+                            ))}
+                            {bookSettings.includeStemGlossaryPage && renderGlossaryPreview()}
+                            <button 
+                                onClick={() => viewportRef.current.scrollTo({top: 0, behavior: 'smooth'})} 
+                                className="no-print mt-12 mb-20 bg-white/20 text-white px-12 py-4 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-white hover:text-slate-900 transition-all"
+                            >
+                                ↑ Back to Top
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
