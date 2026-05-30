@@ -555,6 +555,7 @@
                 publicationDate: typeof overrides.publicationDate === 'string' && overrides.publicationDate.trim() ? overrides.publicationDate.trim() : '2026-06-01',
                 language: typeof overrides.language === 'string' && overrides.language.trim() ? overrides.language : 'en',
                 coverImage: typeof overrides.coverImage === 'string' ? toDirectGithubRawUrl(overrides.coverImage) : "",
+                libraryCoverImage: typeof overrides.libraryCoverImage === 'string' ? toDirectGithubRawUrl(overrides.libraryCoverImage) : "",
                 coverImageScale: clampStoryCoverNumber(overrides.coverImageScale, 100, 5, 400),
                 coverImagePosX: clampStoryCoverNumber(overrides.coverImagePosX, 50, 0, 100),
                 coverImagePosY: clampStoryCoverNumber(overrides.coverImagePosY, COVER_LAYOUT.defaultPosY, 0, 100),
@@ -616,6 +617,8 @@ No part of this publication may be reproduced, stored in a retrieval system, or 
                 posY: clampStoryCoverNumber(settings?.coverImagePosY, COVER_LAYOUT.defaultPosY, 0, 100)
             });
 
+            const getCoverBackgroundSize = (scale) => (Number(scale) === 100 ? 'cover' : `${scale}% auto`);
+
             const getBookCoverBleedStyle = (settings, imageUrl) => {
                 const url = toDirectGithubRawUrl(imageUrl);
                 if (!url) return null;
@@ -624,7 +627,7 @@ No part of this publication may be reproduced, stored in a retrieval system, or 
                     backgroundColor: COVER_LAYOUT.skyColor,
                     backgroundImage: `url(${url})`,
                     backgroundRepeat: 'no-repeat',
-                    backgroundSize: `${scale}% auto`,
+                    backgroundSize: getCoverBackgroundSize(scale),
                     backgroundPosition: `${posX}% ${posY}%`
                 };
             };
@@ -926,6 +929,33 @@ No part of this publication may be reproduced, stored in a retrieval system, or 
                 });
 
                 if (currentPageBlocks.length > 0) pages.push(currentPageBlocks);
+                return pages.length > 0 ? pages : [[]];
+            };
+
+            const GLOSSARY_PAGINATION = {
+                titleHeight: 170,
+                itemLineHeight: 42,
+                itemGap: 18,
+                charsPerLine: 66
+            };
+
+            const paginateGlossaryItems = (items) => {
+                const maxAllowedHeight = PAGE_LAYOUT.height - PAGE_LAYOUT.topPadding - PAGE_LAYOUT.bottomBuffer;
+                const pages = [];
+                let currentItems = [];
+                let currentHeight = GLOSSARY_PAGINATION.titleHeight;
+                items.forEach((item) => {
+                    const wrappedLines = Math.max(1, Math.ceil(item.length / GLOSSARY_PAGINATION.charsPerLine));
+                    const itemHeight = (wrappedLines * GLOSSARY_PAGINATION.itemLineHeight) + GLOSSARY_PAGINATION.itemGap;
+                    if (currentItems.length > 0 && currentHeight + itemHeight > maxAllowedHeight) {
+                        pages.push(currentItems);
+                        currentItems = [];
+                        currentHeight = 0;
+                    }
+                    currentItems.push(item);
+                    currentHeight += itemHeight;
+                });
+                if (currentItems.length > 0) pages.push(currentItems);
                 return pages.length > 0 ? pages : [[]];
             };
 
@@ -1260,7 +1290,8 @@ body { font-family: Arial, sans-serif; }
 .block-row { display: flex; gap: 48px; align-items: flex-start; }
 .avatar { position: relative; width: 160px; height: 160px; flex-shrink: 0; border-radius: 9999px; overflow: hidden; background: #ffffff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 9999px; }
-.dialogue-text, .paragraph-text, .character-sound, .sfx-text { margin: 0; white-space: pre-wrap; }
+.dialogue-text, .paragraph-text, .character-sound, .sfx-text { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
+.block-row .dialogue-text, .block-row .character-sound { flex: 1; min-width: 0; }
 .dialogue-text { padding-top: 32px; color: #0f172a; font-size: 36px; line-height: 1.4; }
 .paragraph-text { color: #1e293b; font-size: 36px; line-height: 1.5; }
 .character-sound { padding-top: 16px; font-family: 'Comic Sans MS', 'Trebuchet MS', cursive; font-size: 80px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; text-transform: lowercase; }
@@ -1300,7 +1331,7 @@ body { font-family: Arial, sans-serif; }
                 const { scale, posX, posY } = getBookCoverLayout(bookSettings);
                 const { seriesLine, tagline, mainTitle } = getCoverTitleParts(bookSettings);
                 const coverStyle = coverHref
-                    ? ` style="background-color:${COVER_LAYOUT.skyColor};background-image:url('../${coverHref}');background-repeat:no-repeat;background-size:${scale}% auto;background-position:${posX}% ${posY}%;"`
+                    ? ` style="background-color:${COVER_LAYOUT.skyColor};background-image:url('../${coverHref}');background-repeat:no-repeat;background-size:${getCoverBackgroundSize(scale)};background-position:${posX}% ${posY}%;"`
                     : ` style="background-color:${COVER_LAYOUT.skyColor};"`;
                 const placeholderMarkup = coverHref ? '' : `<div class="placeholder-cover">${escapeHtml(mainTitle || 'COVER')}<br />COVER ART</div>`;
                 const titleBlockMarkup = buildHeroTitleBlockMarkup({ seriesLine, tagline, mainTitle, subtitle: bookSettings.volumeSubtitle });
@@ -1357,7 +1388,13 @@ body { font-family: Arial, sans-serif; }
             };
 
             const buildTableOfContentsPageXhtml = (tocEntries) => buildSupportPageXhtml('Table of Contents', `<div class="toc-list">${tocEntries.map((entry) => `<div class="toc-row"><span>${escapeHtml(entry.title)}</span><span>${entry.pageNumber}</span></div>`).join('')}</div>`);
-            const buildGlossaryPageXhtml = () => buildSupportPageXhtml(bookSettings.glossaryTitle, `<ul class="glossary-list">${parseMultilineItems(bookSettings.glossaryText).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+            const buildGlossaryPageXhtml = (items, { showTitle = true } = {}) => {
+                const titleMarkup = showTitle ? `<h1 class="support-title">${escapeHtml(bookSettings.glossaryTitle)}</h1>` : '';
+                const listMarkup = `<ul class="glossary-list"${showTitle ? '' : ' style="margin-top:0;"'}>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+                return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(bookSettings.glossaryTitle)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="content-layer">${titleMarkup}${listMarkup}</div></section></body></html>`;
+            };
             const buildAboutAuthorPageXhtml = () => {
                 const contactMarkup = bookSettings.authorContactText.trim()
                     ? `<div class="author-contact">${parseMultilineItems(bookSettings.authorContactText).map((paragraph) => `<p>${formatMultilineText(paragraph)}</p>`).join('')}</div>`
@@ -1400,13 +1437,15 @@ body { font-family: Arial, sans-serif; }
     <meta refines="#subtitle" property="title-type">subtitle</meta>`
                     : '';
                 const identifierTypeMeta = bookId.startsWith('urn:isbn:')
-                    ? `<meta refines="#pub-id" property="identifier-type" scheme="onix:codelist5">15</meta>`
+                    ? `<meta refines="#book-id" property="identifier-type" scheme="onix:codelist5">15</meta>`
                     : '';
                 const seriesEntry = bookSettings.seriesTitle.trim() ? `<meta property="belongs-to-collection" id="series-name">${escapeHtml(bookSettings.seriesTitle.trim())}</meta>
     <meta refines="#series-name" property="collection-type">series</meta>` : '';
+                const coverEntry = coverAssetHref ? assetEntries.find((assetEntry) => assetEntry.href === coverAssetHref) : null;
+                const coverMetaEntry = coverEntry ? `<meta name="cover" content="${coverEntry.id}" />` : '';
                 const mainTitle = getEpubMainTitle();
                 return `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0" xml:lang="${escapeHtml(bookSettings.language)}"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="pub-id">${escapeHtml(bookId)}</dc:identifier>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0" xml:lang="${escapeHtml(bookSettings.language)}"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${escapeHtml(bookId)}</dc:identifier>
     ${identifierTypeMeta}
     <dc:title id="title">${escapeHtml(mainTitle)}</dc:title>
     <meta refines="#title" property="title-type">main</meta>
@@ -1417,6 +1456,7 @@ body { font-family: Arial, sans-serif; }
     ${dateEntry}
     ${subjectEntries}
     <meta property="dcterms:modified">${modifiedAt}</meta>
+    ${coverMetaEntry}
     <meta property="rendition:layout">pre-paginated</meta>
     <meta property="rendition:orientation">portrait</meta>
     <meta property="rendition:spread">none</meta>
@@ -1506,6 +1546,28 @@ body { font-family: Arial, sans-serif; }
                         assetEntries.push({ id: 'asset-cover', href: coverAssetHref, mediaType: coverAsset.mediaType });
                     }
 
+                    let libraryCoverAssetHref = null;
+                    const libraryCoverDirectUrl = toDirectGithubRawUrl(bookSettings.libraryCoverImage || '');
+                    if (libraryCoverDirectUrl) {
+                        try {
+                            const libraryCoverRaster = getEpubCoverRasterExport(libraryCoverDirectUrl);
+                            const libraryCoverAsset = await buildEpubImageAsset({
+                                url: libraryCoverDirectUrl,
+                                fileName: `cover-thumbnail.${libraryCoverRaster.fileExtension}`,
+                                mediaType: libraryCoverRaster.mediaType,
+                                quality: libraryCoverRaster.quality,
+                                maxWidth: PAGE_LAYOUT.width,
+                                maxHeight: PAGE_LAYOUT.height
+                            });
+                            libraryCoverAssetHref = `${EPUB_EXPORT_CONFIG.imagesDir}/${libraryCoverAsset.fileName}`;
+                            zip.file(`OEBPS/${libraryCoverAssetHref}`, libraryCoverAsset.data);
+                            assetEntries.push({ id: 'asset-library-cover', href: libraryCoverAssetHref, mediaType: libraryCoverAsset.mediaType });
+                        } catch (libraryCoverErr) {
+                            console.warn('Library cover export skipped', libraryCoverErr);
+                        }
+                    }
+                    const coverImageHref = libraryCoverAssetHref || coverAssetHref;
+
                     const storyTitleCoverAssetHrefByStoryId = {};
                     for (let storyIdx = 0; storyIdx < storyBundles.length; storyIdx += 1) {
                         const story = storyBundles[storyIdx].story;
@@ -1551,11 +1613,17 @@ body { font-family: Arial, sans-serif; }
                         addPage(bundle.story.title, buildStoryTitlePageXhtml(bundle.story, storyTitleCoverAssetHrefByStoryId[bundle.story.id]));
                         bundle.pages.forEach((pageBlocks, index) => addPage(`${bundle.story.title} ${index + 1}`, buildStoryPageXhtml(bundle.story, pageBlocks, storyStartPageNumbers[bundle.story.id] + 1 + index, assetHrefByKey), false));
                     });
-                    if (bookSettings.includeStemGlossaryPage) addPage(bookSettings.glossaryTitle, buildGlossaryPageXhtml(), false);
+                    if (bookSettings.includeStemGlossaryPage) {
+                        const glossaryPages = paginateGlossaryItems(parseMultilineItems(bookSettings.glossaryText));
+                        glossaryPages.forEach((glossaryItems, glossaryIdx) => {
+                            const pageTitle = glossaryIdx === 0 ? bookSettings.glossaryTitle : `${bookSettings.glossaryTitle} (cont.)`;
+                            addPage(pageTitle, buildGlossaryPageXhtml(glossaryItems, { showTitle: glossaryIdx === 0 }), false);
+                        });
+                    }
                     if (bookSettings.includeAboutAuthorPage) addPage(bookSettings.aboutAuthorTitle, buildAboutAuthorPageXhtml(), false);
 
                     zip.file('OEBPS/nav.xhtml', buildNavDocument(pageEntries));
-                    zip.file('OEBPS/package.opf', buildPackageDocument({ bookId, modifiedAt, pageEntries, assetEntries, coverAssetHref }));
+                    zip.file('OEBPS/package.opf', buildPackageDocument({ bookId, modifiedAt, pageEntries, assetEntries, coverAssetHref: coverImageHref }));
 
                     const epubBlob = await zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip', compression: 'DEFLATE', compressionOptions: { level: EPUB_EXPORT_CONFIG.compressionLevel } });
                     const downloadUrl = URL.createObjectURL(epubBlob);
@@ -1778,18 +1846,21 @@ body { font-family: Arial, sans-serif; }
                 </PreviewPageFrame>
             );
 
-            const renderGlossaryPreview = () => (
-                <PreviewPageFrame>
-                    <div>
-                        {renderSupportSectionTitle(bookSettings.glossaryTitle)}
-                        <div className="space-y-4">
-                            {parseMultilineItems(bookSettings.glossaryText).map((item, index) => (
-                                <p key={index} className="text-[28px] leading-[1.35] text-slate-800" style={{ fontFamily: "'Tenor Sans', sans-serif" }}>{item}</p>
-                            ))}
+            const renderGlossaryPreview = () => {
+                const glossaryPages = paginateGlossaryItems(parseMultilineItems(bookSettings.glossaryText));
+                return glossaryPages.map((items, pageIndex) => (
+                    <PreviewPageFrame key={`glossary-${pageIndex}`}>
+                        <div>
+                            {pageIndex === 0 && renderSupportSectionTitle(bookSettings.glossaryTitle)}
+                            <div className="space-y-4">
+                                {items.map((item, index) => (
+                                    <p key={index} className="text-[28px] leading-[1.35] text-slate-800" style={{ fontFamily: "'Tenor Sans', sans-serif" }}>{item}</p>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                </PreviewPageFrame>
-            );
+                    </PreviewPageFrame>
+                ));
+            };
 
             const renderCopyrightPreview = () => {
                 const authorCredit = getAuthorCreditLine(bookSettings);
@@ -2008,6 +2079,14 @@ body { font-family: Arial, sans-serif; }
                                                 </label>
                                             </div>
                                             <p className="text-[10px] text-slate-500 leading-snug">Scale is width as a percentage of the page; position is the anchor. Default Pos Y ({COVER_LAYOUT.defaultPosY}%) shifts art down so text clears the top.</p>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block tracking-widest">Library Cover / Thumbnail URL</label>
+                                            <input className="w-full border-2 border-slate-100 rounded-xl p-3 text-xs font-medium text-slate-900 focus:border-teal-500 outline-none" value={bookSettings.libraryCoverImage} onChange={(e) => updateBookSetting('libraryCoverImage', toDirectGithubRawUrl(e.target.value))} placeholder="https://github.com/raul-octavian/clio_astra_assets/blob/main/cover_thumbnail.jpg" />
+                                            <div className="flex gap-2 mt-2">
+                                                <button onClick={() => updateBookSetting('libraryCoverImage', '')} disabled={!bookSettings.libraryCoverImage} className="bg-white text-[10px] px-4 py-3 rounded-lg font-bold border border-slate-200 text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed">Clear</button>
+                                            </div>
+                                            <p className="mt-1 text-[10px] text-slate-400 leading-snug">Dedicated image used as the book's <span className="font-semibold">library thumbnail</span> (EPUB <span className="font-mono">cover-image</span> + <span className="font-mono">meta name="cover"</span>). Keeps its source format (webp/png/jpg). Leave blank to reuse the Book Cover above.</p>
                                         </div>
                                         <div className="grid grid-cols-2 gap-2 text-xs">
                                             <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-2"><input type="checkbox" checked={bookSettings.includeDedicationPage} onChange={(e) => updateBookSetting('includeDedicationPage', e.target.checked)} />Dedication</label>
