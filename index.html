@@ -401,11 +401,8 @@
                 coverMediaTypeWebp: 'image/webp',
                 coverQualityWebp: 0.88,
                 compressionLevel: 9,
-                imagesDir: 'images',
-                pagesDir: 'pages',
-                fontsDir: 'fonts',
                 fontMediaType: 'font/woff2',
-                stylesheetPath: 'styles/book.css'
+                stylesheetPath: 'book.css'
             };
 
             /** Fonts embedded into the EPUB so readers don't depend on network access. */
@@ -416,22 +413,12 @@
                 { id: 'font-nunito-700', fileName: 'nunito-700.woff2', family: 'Nunito', weight: 700, style: 'normal', url: 'https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIO-aBTMnFcQIG.woff2' }
             ];
 
-            /** Picks EPUB-embedded raster format from URL (e.g. raw GitHub …/art.webp). Defaults to JPEG. */
-            const getEpubCoverRasterExport = (url) => {
-                const path = String(url || '').trim().split('?')[0].toLowerCase();
-                if (path.endsWith('.webp')) {
-                    return {
-                        fileExtension: 'webp',
-                        mediaType: EPUB_EXPORT_CONFIG.coverMediaTypeWebp,
-                        quality: EPUB_EXPORT_CONFIG.coverQualityWebp
-                    };
-                }
-                return {
-                    fileExtension: 'jpg',
-                    mediaType: EPUB_EXPORT_CONFIG.coverMediaType,
-                    quality: EPUB_EXPORT_CONFIG.coverQuality
-                };
-            };
+            /** Always JPEG for embedded covers/illustrations: WebP isn't reliably rendered by Android EPUB readers. */
+            const getEpubCoverRasterExport = () => ({
+                fileExtension: 'jpg',
+                mediaType: EPUB_EXPORT_CONFIG.coverMediaType,
+                quality: EPUB_EXPORT_CONFIG.coverQuality
+            });
 
             /** GitHub file page (…/blob/branch/path) → raw.githubusercontent.com/…/branch/path — required for images not under /assets. */
             const toDirectGithubRawUrl = (input) => {
@@ -651,7 +638,7 @@ No part of this publication may be reproduced, stored in a retrieval system, or 
                 const artStyle = embeddedCoverHref
                     ? (() => {
                         const { scale, posX, posY } = getStoryCoverLayout(story);
-                        return ` style="background-image:url('../${embeddedCoverHref}');background-repeat:no-repeat;background-size:${scale}% auto;background-position:${posX}% ${posY}%;"`;
+                        return ` style="background-image:url('${embeddedCoverHref}');background-repeat:no-repeat;background-size:${scale}% auto;background-position:${posX}% ${posY}%;"`;
                     })()
                     : '';
                 const artMarkup = embeddedCoverHref ? `<div class="story-hero-art"${artStyle}></div>` : '';
@@ -1143,7 +1130,7 @@ No part of this publication may be reproduced, stored in a retrieval system, or 
 
             const buildEpubStylesheet = (embeddedFonts = []) => `
 ${embeddedFonts.length
-    ? embeddedFonts.map((font) => `@font-face { font-family: '${font.family}'; font-style: ${font.style}; font-weight: ${font.weight}; font-display: swap; src: url('../${EPUB_EXPORT_CONFIG.fontsDir}/${font.fileName}') format('woff2'); }`).join('\n')
+    ? embeddedFonts.map((font) => `@font-face { font-family: '${font.family}'; font-style: ${font.style}; font-weight: ${font.weight}; font-display: swap; src: url('${font.fileName}') format('woff2'); }`).join('\n')
     : `@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,100..900&family=Nunito:wght@200..900&display=swap');`}
 html, body { margin: 0; padding: 0; width: ${PAGE_LAYOUT.width}px; height: ${PAGE_LAYOUT.height}px; }
 body { font-family: Arial, sans-serif; }
@@ -1322,7 +1309,7 @@ body { font-family: Arial, sans-serif; }
                     const textClass = block.isSound ? 'character-sound' : 'dialogue-text';
                     const inlineColor = block.isSound ? ` style="color:${character.soundColor};"` : '';
                     return `
-<div class="block-row" style="margin-top:${marginTop}px;"><div class="avatar" style="border: 4px solid ${character.borderColor};"><img src="../${assetHrefByKey[block.type]}" alt="${escapeHtml(character.name)}" /></div><p class="${textClass}"${inlineColor}>${formatMultilineText(block.content)}</p></div>`;
+<div class="block-row" style="margin-top:${marginTop}px;"><div class="avatar" style="border: 4px solid ${character.borderColor};"><img src="${assetHrefByKey[block.type]}" alt="${escapeHtml(character.name)}" /></div><p class="${textClass}"${inlineColor}>${formatMultilineText(block.content)}</p></div>`;
                 }
                 return `<p class="paragraph-text" style="margin-top:${marginTop}px;">${formatMultilineText(block.content)}</p>`;
             };
@@ -1331,13 +1318,13 @@ body { font-family: Arial, sans-serif; }
                 const { scale, posX, posY } = getBookCoverLayout(bookSettings);
                 const { seriesLine, tagline, mainTitle } = getCoverTitleParts(bookSettings);
                 const coverStyle = coverHref
-                    ? ` style="background-color:${COVER_LAYOUT.skyColor};background-image:url('../${coverHref}');background-repeat:no-repeat;background-size:${getCoverBackgroundSize(scale)};background-position:${posX}% ${posY}%;"`
+                    ? ` style="background-color:${COVER_LAYOUT.skyColor};background-image:url('${coverHref}');background-repeat:no-repeat;background-size:${getCoverBackgroundSize(scale)};background-position:${posX}% ${posY}%;"`
                     : ` style="background-color:${COVER_LAYOUT.skyColor};"`;
                 const placeholderMarkup = coverHref ? '' : `<div class="placeholder-cover">${escapeHtml(mainTitle || 'COVER')}<br />COVER ART</div>`;
                 const titleBlockMarkup = buildHeroTitleBlockMarkup({ seriesLine, tagline, mainTitle, subtitle: bookSettings.volumeSubtitle });
                 return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Cover')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--cover" epub:type="cover"><div class="full-bleed-bg"${coverStyle}><div class="cover-sky-gradient"></div>${placeholderMarkup}</div><div class="cover-content">${titleBlockMarkup}</div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Cover')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--cover" epub:type="cover"><div class="full-bleed-bg"${coverStyle}><div class="cover-sky-gradient"></div>${placeholderMarkup}</div><div class="cover-content">${titleBlockMarkup}</div></section></body></html>`;
             };
             const buildBookTitlePageXhtml = () => {
                 const { seriesLine, tagline, mainTitle } = getCoverTitleParts(bookSettings);
@@ -1345,15 +1332,15 @@ body { font-family: Arial, sans-serif; }
                 const authorCreditMarkup = buildAuthorCreditMarkup(bookSettings);
                 return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Title Page')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--title"><div class="story-title-content">${titleBlockMarkup}${authorCreditMarkup}</div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Title Page')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--title"><div class="story-title-content">${titleBlockMarkup}${authorCreditMarkup}</div></section></body></html>`;
             };
 
             const buildSupportPageXhtml = (title, bodyMarkup) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(title)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="support-content"><h1 class="support-title">${escapeHtml(title)}</h1>${bodyMarkup}</div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(title)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="support-content"><h1 class="support-title">${escapeHtml(title)}</h1>${bodyMarkup}</div></section></body></html>`;
             const buildDedicationPageXhtml = () => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Dedication</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="dedication-content"><div class="dedication-body">${parseMultilineItems(bookSettings.dedicationText).map((paragraph) => `<p>${formatMultilineText(paragraph)}</p>`).join('')}</div></div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Dedication</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="dedication-content"><div class="dedication-body">${parseMultilineItems(bookSettings.dedicationText).map((paragraph) => `<p>${formatMultilineText(paragraph)}</p>`).join('')}</div></div></section></body></html>`;
 
             const buildCharacterProfilesPageXhtml = (assetHrefByKey) => {
                 const title = bookSettings.characterProfilesTitle.trim() || 'Meet the Team!';
@@ -1362,7 +1349,7 @@ body { font-family: Arial, sans-serif; }
                     : '';
                 const characterCards = getCharacterProfiles().map((profile) => `
       <div class="character-card">
-        <img class="character-icon" src="../${assetHrefByKey[profile.key]}" alt="${escapeHtml(profile.name)}"/>
+        <img class="character-icon" src="${assetHrefByKey[profile.key]}" alt="${escapeHtml(profile.name)}"/>
         <div class="character-info">
           <h2 class="character-name">${escapeHtml(profile.name)}</h2>
           <p class="character-desc">${formatMultilineText(profile.bio)}</p>
@@ -1374,7 +1361,7 @@ body { font-family: Arial, sans-serif; }
 <head>
   <title>${escapeHtml(title)}</title>
   <meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}"/>
-  <link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}"/>
+  <link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}"/>
 </head>
 <body>
   <div class="page-container">
@@ -1393,7 +1380,7 @@ body { font-family: Arial, sans-serif; }
                 const listMarkup = `<ul class="glossary-list"${showTitle ? '' : ' style="margin-top:0;"'}>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
                 return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(bookSettings.glossaryTitle)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="content-layer">${titleMarkup}${listMarkup}</div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(bookSettings.glossaryTitle)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page"><div class="content-layer">${titleMarkup}${listMarkup}</div></section></body></html>`;
             };
             const buildAboutAuthorPageXhtml = () => {
                 const contactMarkup = bookSettings.authorContactText.trim()
@@ -1412,11 +1399,11 @@ body { font-family: Arial, sans-serif; }
                 const bleedMarkup = buildStoryHeroBackgroundMarkup(story, embeddedCoverHref);
                 return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(story.title)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--story-hero">${bleedMarkup}<div class="story-title-content story-title-chapter">${titleBlockMarkup}</div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(story.title)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--story-hero">${bleedMarkup}<div class="story-title-content story-title-chapter">${titleBlockMarkup}</div></section></body></html>`;
             };
             const buildStoryPageXhtml = (story, pageBlocks, pageNumber, assetHrefByKey) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(story.title)} - Page ${pageNumber}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="../${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page" epub:type="bodymatter"><div class="content-layer">${pageBlocks.map((block, index) => renderEpubBlock(block, index, pageBlocks, assetHrefByKey)).join('')}<div class="page-number">${pageNumber}</div></div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(story.title)} - Page ${pageNumber}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page" epub:type="bodymatter"><div class="content-layer">${pageBlocks.map((block, index) => renderEpubBlock(block, index, pageBlocks, assetHrefByKey)).join('')}<div class="page-number">${pageNumber}</div></div></section></body></html>`;
             const buildNavDocument = (pageEntries) => {
                 const navEntries = pageEntries.filter((pageEntry) => pageEntry.inNav !== false);
                 return `<?xml version="1.0" encoding="UTF-8"?>
@@ -1487,7 +1474,7 @@ body { font-family: Arial, sans-serif; }
                     const storyBundles = stories.map((story) => ({ story, pages: paginateStoryContent(story.masterContent) }));
                     const assetResults = await Promise.all(Object.entries(icons).map(async ([key, icon]) => [key, await buildEpubImageAsset({ url: icon.src, fileName: `${key}.png`, mediaType: EPUB_EXPORT_CONFIG.iconMediaType, quality: 1 })]));
                     const assetByKey = Object.fromEntries(assetResults);
-                    const assetHrefByKey = Object.fromEntries(Object.entries(assetByKey).map(([key, asset]) => [key, `${EPUB_EXPORT_CONFIG.imagesDir}/${asset.fileName}`]));
+                    const assetHrefByKey = Object.fromEntries(Object.entries(assetByKey).map(([key, asset]) => [key, asset.fileName]));
                     let coverAsset = null;
                     const bookCoverDirectUrl = toDirectGithubRawUrl(bookSettings.coverImage || '');
                     if (bookCoverDirectUrl) {
@@ -1530,18 +1517,18 @@ body { font-family: Arial, sans-serif; }
 
                     const assetEntries = [];
                     embeddedFonts.forEach((font) => {
-                        const href = `${EPUB_EXPORT_CONFIG.fontsDir}/${font.fileName}`;
+                        const href = font.fileName;
                         zip.file(`OEBPS/${href}`, font.data);
                         assetEntries.push({ id: font.id, href, mediaType: EPUB_EXPORT_CONFIG.fontMediaType });
                     });
                     Object.entries(assetByKey).forEach(([key, asset]) => {
-                        const href = `${EPUB_EXPORT_CONFIG.imagesDir}/${asset.fileName}`;
+                        const href = asset.fileName;
                         zip.file(`OEBPS/${href}`, asset.data);
                         assetEntries.push({ id: `asset-${key}`, href, mediaType: asset.mediaType });
                     });
                     let coverAssetHref = null;
                     if (coverAsset) {
-                        coverAssetHref = `${EPUB_EXPORT_CONFIG.imagesDir}/${coverAsset.fileName}`;
+                        coverAssetHref = coverAsset.fileName;
                         zip.file(`OEBPS/${coverAssetHref}`, coverAsset.data);
                         assetEntries.push({ id: 'asset-cover', href: coverAssetHref, mediaType: coverAsset.mediaType });
                     }
@@ -1559,7 +1546,7 @@ body { font-family: Arial, sans-serif; }
                                 maxWidth: PAGE_LAYOUT.width,
                                 maxHeight: PAGE_LAYOUT.height
                             });
-                            libraryCoverAssetHref = `${EPUB_EXPORT_CONFIG.imagesDir}/${libraryCoverAsset.fileName}`;
+                            libraryCoverAssetHref = libraryCoverAsset.fileName;
                             zip.file(`OEBPS/${libraryCoverAssetHref}`, libraryCoverAsset.data);
                             assetEntries.push({ id: 'asset-library-cover', href: libraryCoverAssetHref, mediaType: libraryCoverAsset.mediaType });
                         } catch (libraryCoverErr) {
@@ -1584,7 +1571,7 @@ body { font-family: Arial, sans-serif; }
                                 maxWidth: PAGE_LAYOUT.width * 2,
                                 maxHeight: PAGE_LAYOUT.height * 2
                             });
-                            const href = `${EPUB_EXPORT_CONFIG.imagesDir}/${asset.fileName}`;
+                            const href = asset.fileName;
                             zip.file(`OEBPS/${href}`, asset.data);
                             assetEntries.push({ id: `asset-story-title-${storyIdx}`, href, mediaType: asset.mediaType });
                             storyTitleCoverAssetHrefByStoryId[story.id] = href;
@@ -1596,7 +1583,7 @@ body { font-family: Arial, sans-serif; }
                     const pageEntries = [];
                     let physicalPageNumber = 1;
                     const addPage = (title, markup, inNav = true) => {
-                        const href = `${EPUB_EXPORT_CONFIG.pagesDir}/${buildEpubPageFileName(physicalPageNumber)}`;
+                        const href = buildEpubPageFileName(physicalPageNumber);
                         const id = `page-${String(physicalPageNumber).padStart(3, '0')}`;
                         zip.file(`OEBPS/${href}`, markup);
                         pageEntries.push({ id, href, title, inNav });
