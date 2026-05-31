@@ -410,7 +410,8 @@
                 { id: 'font-fraunces-700', fileName: 'fraunces-700.woff2', family: 'Fraunces', weight: 700, style: 'normal', url: 'https://fonts.gstatic.com/s/fraunces/v38/6NUu8FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0K7iN7hzFUPJH58nib14c0qv8oRcTnaIM.woff2' },
                 { id: 'font-fraunces-900', fileName: 'fraunces-900.woff2', family: 'Fraunces', weight: 900, style: 'normal', url: 'https://fonts.gstatic.com/s/fraunces/v38/6NUu8FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0K7iN7hzFUPJH58nib14c7qv8oRcTn.woff2' },
                 { id: 'font-nunito-600', fileName: 'nunito-600.woff2', family: 'Nunito', weight: 600, style: 'normal', url: 'https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofINeaBTMnFcQ.woff2' },
-                { id: 'font-nunito-700', fileName: 'nunito-700.woff2', family: 'Nunito', weight: 700, style: 'normal', url: 'https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIO-aBTMnFcQIG.woff2' }
+                { id: 'font-nunito-700', fileName: 'nunito-700.woff2', family: 'Nunito', weight: 700, style: 'normal', url: 'https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIO-aBTMnFcQIG.woff2' },
+                { id: 'font-patrick-hand-400', fileName: 'patrick-hand-400.woff2', family: 'Patrick Hand', weight: 400, style: 'normal', url: 'https://fonts.gstatic.com/s/patrickhand/v25/LDI1apSQOAYtSuYWp8ZhfYe8XsLLubg58w.woff2' }
             ];
 
             /** Always JPEG for embedded covers/illustrations: WebP isn't reliably rendered by Android EPUB readers. */
@@ -634,14 +635,13 @@ No part of this publication may be reproduced, stored in a retrieval system, or 
                 };
             };
 
-            const buildStoryHeroBackgroundMarkup = (story, embeddedCoverHref) => {
-                const artStyle = embeddedCoverHref
+            const buildStoryHeroBackgroundMarkup = (story, embeddedCoverHref, coverDims) => {
+                const artMarkup = embeddedCoverHref
                     ? (() => {
                         const { scale, posX, posY } = getStoryCoverLayout(story);
-                        return ` style="background-image:url('${embeddedCoverHref}');background-repeat:no-repeat;background-size:${scale}% auto;background-position:${posX}% ${posY}%;"`;
+                        return `<img class="full-bleed-img" src="${embeddedCoverHref}" alt="" style="${getFullBleedImgStyle(scale, posX, posY, coverDims?.width, coverDims?.height, false)}" />`;
                     })()
                     : '';
-                const artMarkup = embeddedCoverHref ? `<div class="story-hero-art"${artStyle}></div>` : '';
                 return `<div class="full-bleed-bg full-bleed-bg--story-hero">${artMarkup}</div>`;
             };
 
@@ -1053,7 +1053,7 @@ No part of this publication may be reproduced, stored in a retrieval system, or 
                 if (!context) throw new Error('Canvas context unavailable');
                 context.drawImage(image, 0, 0, canvas.width, canvas.height);
                 const outputBlob = await createCanvasBlob(canvas, mediaType, quality);
-                return { fileName, mediaType: outputBlob.type || mediaType, data: await outputBlob.arrayBuffer() };
+                return { fileName, mediaType: outputBlob.type || mediaType, data: await outputBlob.arrayBuffer(), width: canvas.width, height: canvas.height };
             };
 
             const buildEpubFontAsset = async (font) => {
@@ -1138,6 +1138,7 @@ body { font-family: Arial, sans-serif; }
 .page--story-hero { background: ${COVER_LAYOUT.storyHeroPageBg}; }
 .full-bleed-bg { position: absolute; inset: 0; z-index: 0; background: #cbd5e1 center / cover no-repeat; display: flex; align-items: center; justify-content: center; }
 .full-bleed-bg--story-hero { background-color: ${COVER_LAYOUT.storyHeroPageBg}; }
+.full-bleed-img { position: absolute; top: 0; left: 0; z-index: 0; }
 .story-hero-art { position: absolute; inset: 0; z-index: 0; background-color: transparent; background-repeat: no-repeat; }
 .content-layer { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding: ${PAGE_LAYOUT.topPadding}px 200px; }
 .cover-content, .story-title-content, .support-content { position: relative; z-index: 2; width: 100%; height: 100%; box-sizing: border-box; padding: 220px 180px; }
@@ -1281,9 +1282,9 @@ body { font-family: Arial, sans-serif; }
 .block-row .dialogue-text, .block-row .character-sound { flex: 1; min-width: 0; }
 .dialogue-text { padding-top: 32px; color: #0f172a; font-size: 36px; line-height: 1.4; }
 .paragraph-text { color: #1e293b; font-size: 36px; line-height: 1.5; }
-.character-sound { padding-top: 16px; font-family: 'Comic Sans MS', 'Trebuchet MS', cursive; font-size: 80px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; text-transform: lowercase; }
-.sfx { width: 100%; display: flex; justify-content: center; font-family: 'Comic Sans MS', 'Trebuchet MS', cursive; }
-.sfx-text { color: ${COLOR_HEX.sfxText}; font-size: 80px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; text-transform: lowercase; text-align: center; }
+.character-sound { padding-top: 16px; font-family: 'Patrick Hand', 'Comic Sans MS', cursive; font-size: 80px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; text-transform: lowercase; }
+.sfx { width: 100%; display: flex; justify-content: center; font-family: 'Patrick Hand', 'Comic Sans MS', cursive; }
+.sfx-text { color: ${COLOR_HEX.sfxText}; font-family: 'Patrick Hand', 'Comic Sans MS', cursive; font-size: 80px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; text-transform: lowercase; text-align: center; }
 .page-number { position: absolute; right: 200px; bottom: 100px; color: #cbd5e1; opacity: 0.5; font-size: 84px; font-style: italic; font-weight: 900; }
 .page-container { padding: 250px 200px; height: 100%; box-sizing: border-box; }
 .section-title { margin: 0 0 28px 0; color: #0f172a; font-family: 'Fraunces', Georgia, serif; font-size: 76px; font-weight: 900; line-height: 1; }
@@ -1314,17 +1315,44 @@ body { font-family: Arial, sans-serif; }
                 return `<p class="paragraph-text" style="margin-top:${marginTop}px;">${formatMultilineText(block.content)}</p>`;
             };
 
-            const buildBookCoverPageXhtml = (coverHref) => {
+            /** CSS background-size/position semantics ported to an absolutely-positioned <img>, resolved to
+             *  explicit pixels at build time. Play Books ignores background-image AND drops CSS transforms /
+             *  collapses %-height images, so we emit only fixed px left/top/width/height (which it honors). */
+            const getFullBleedImgStyle = (scale, posX, posY, natW, natH, coverFill = false) => {
+                const PAGE_W = PAGE_LAYOUT.width;
+                const PAGE_H = PAGE_LAYOUT.height;
+                const srcW = natW > 0 ? natW : PAGE_W;
+                const srcH = natH > 0 ? natH : PAGE_H;
+                const s = Number(scale) || 100;
+                let imgW;
+                let imgH;
+                if (coverFill && s === 100) {
+                    // background-size: cover — scale to fully cover the page (crop overflow).
+                    const fit = Math.max(PAGE_W / srcW, PAGE_H / srcH);
+                    imgW = srcW * fit;
+                    imgH = srcH * fit;
+                } else {
+                    // background-size: ${s}% auto — width = scale% of the page, height keeps the image ratio.
+                    imgW = (s / 100) * PAGE_W;
+                    imgH = imgW * (srcH / srcW);
+                }
+                // background-position: ${posX}% ${posY}% — anchor the image's posX/posY point to the page's.
+                const left = (PAGE_W - imgW) * (Number(posX) / 100);
+                const top = (PAGE_H - imgH) * (Number(posY) / 100);
+                return `left:${left.toFixed(1)}px;top:${top.toFixed(1)}px;width:${imgW.toFixed(1)}px;height:${imgH.toFixed(1)}px;`;
+            };
+
+            const buildBookCoverPageXhtml = (coverHref, coverDims) => {
                 const { scale, posX, posY } = getBookCoverLayout(bookSettings);
                 const { seriesLine, tagline, mainTitle } = getCoverTitleParts(bookSettings);
-                const coverStyle = coverHref
-                    ? ` style="background-color:${COVER_LAYOUT.skyColor};background-image:url('${coverHref}');background-repeat:no-repeat;background-size:${getCoverBackgroundSize(scale)};background-position:${posX}% ${posY}%;"`
-                    : ` style="background-color:${COVER_LAYOUT.skyColor};"`;
+                const coverImgMarkup = coverHref
+                    ? `<img class="full-bleed-img" src="${coverHref}" alt="" style="${getFullBleedImgStyle(scale, posX, posY, coverDims?.width, coverDims?.height, true)}" />`
+                    : '';
                 const placeholderMarkup = coverHref ? '' : `<div class="placeholder-cover">${escapeHtml(mainTitle || 'COVER')}<br />COVER ART</div>`;
                 const titleBlockMarkup = buildHeroTitleBlockMarkup({ seriesLine, tagline, mainTitle, subtitle: bookSettings.volumeSubtitle });
                 return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Cover')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--cover" epub:type="cover"><div class="full-bleed-bg"${coverStyle}><div class="cover-sky-gradient"></div>${placeholderMarkup}</div><div class="cover-content">${titleBlockMarkup}</div></section></body></html>`;
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(getFullVolumeTitle() || 'Cover')}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--cover" epub:type="cover"><div class="full-bleed-bg" style="background-color:${COVER_LAYOUT.skyColor};">${coverImgMarkup}<div class="cover-sky-gradient"></div>${placeholderMarkup}</div><div class="cover-content">${titleBlockMarkup}</div></section></body></html>`;
             };
             const buildBookTitlePageXhtml = () => {
                 const { seriesLine, tagline, mainTitle } = getCoverTitleParts(bookSettings);
@@ -1393,10 +1421,10 @@ body { font-family: Arial, sans-serif; }
                 const authorMarkup = authorCredit ? `<p><strong>${escapeHtml(authorCredit)}</strong></p>` : '';
                 return buildSupportPageXhtml('Copyright', `<div class="copyright-body">${authorMarkup}<p>${escapeHtml(bookSettings.copyrightNotice)}</p>${bookSettings.isbn.trim() ? `<p>ISBN: ${escapeHtml(bookSettings.isbn.trim())}</p>` : ''}${bookSettings.publisher.trim() ? `<p>${formatMultilineText(bookSettings.publisher.trim())}</p>` : ''}<p>${escapeHtml(bookSettings.noAiTrainingClause)}</p></div>`);
             };
-            const buildStoryTitlePageXhtml = (story, embeddedCoverHref) => {
+            const buildStoryTitlePageXhtml = (story, embeddedCoverHref, coverDims) => {
                 const { mainTitle } = getStoryHeroTitleParts(bookSettings, story);
                 const titleBlockMarkup = buildStoryHeroTitleBlockMarkup({ mainTitle });
-                const bleedMarkup = buildStoryHeroBackgroundMarkup(story, embeddedCoverHref);
+                const bleedMarkup = buildStoryHeroBackgroundMarkup(story, embeddedCoverHref, coverDims);
                 return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(story.title)}</title><meta charset="utf-8" /><meta name="viewport" content="width=${PAGE_LAYOUT.width}, height=${PAGE_LAYOUT.height}" /><link rel="stylesheet" type="text/css" href="${EPUB_EXPORT_CONFIG.stylesheetPath}" /></head><body><section class="page page--story-hero">${bleedMarkup}<div class="story-title-content story-title-chapter">${titleBlockMarkup}</div></section></body></html>`;
@@ -1556,6 +1584,7 @@ body { font-family: Arial, sans-serif; }
                     const coverImageHref = libraryCoverAssetHref || coverAssetHref;
 
                     const storyTitleCoverAssetHrefByStoryId = {};
+                    const storyTitleCoverDimsByStoryId = {};
                     for (let storyIdx = 0; storyIdx < storyBundles.length; storyIdx += 1) {
                         const story = storyBundles[storyIdx].story;
                         const rawUrl = toDirectGithubRawUrl(typeof story.coverImage === 'string' ? story.coverImage : '');
@@ -1575,6 +1604,7 @@ body { font-family: Arial, sans-serif; }
                             zip.file(`OEBPS/${href}`, asset.data);
                             assetEntries.push({ id: `asset-story-title-${storyIdx}`, href, mediaType: asset.mediaType });
                             storyTitleCoverAssetHrefByStoryId[story.id] = href;
+                            storyTitleCoverDimsByStoryId[story.id] = { width: asset.width, height: asset.height };
                         } catch (coverErr) {
                             console.warn('Story title cover export skipped', story.title, coverErr);
                         }
@@ -1590,14 +1620,14 @@ body { font-family: Arial, sans-serif; }
                         physicalPageNumber += 1;
                     };
 
-                    addPage('Cover', buildBookCoverPageXhtml(coverAssetHref), false);
+                    addPage('Cover', buildBookCoverPageXhtml(coverAssetHref, coverAsset ? { width: coverAsset.width, height: coverAsset.height } : null), false);
                     addPage('Title Page', buildBookTitlePageXhtml(), false);
                     if (bookSettings.includeCopyrightPage) addPage('Copyright', buildCopyrightPageXhtml(), false);
                     if (bookSettings.includeDedicationPage) addPage('Dedication', buildDedicationPageXhtml(), false);
                     if (bookSettings.includeTableOfContentsPage) addPage('Table of Contents', buildTableOfContentsPageXhtml(storyBundles.map((bundle) => ({ title: bundle.story.title, pageNumber: storyStartPageNumbers[bundle.story.id] }))), false);
                     if (bookSettings.includeCharacterProfilesPage) addPage(bookSettings.characterProfilesTitle, buildCharacterProfilesPageXhtml(assetHrefByKey), false);
                     storyBundles.forEach((bundle) => {
-                        addPage(bundle.story.title, buildStoryTitlePageXhtml(bundle.story, storyTitleCoverAssetHrefByStoryId[bundle.story.id]));
+                        addPage(bundle.story.title, buildStoryTitlePageXhtml(bundle.story, storyTitleCoverAssetHrefByStoryId[bundle.story.id], storyTitleCoverDimsByStoryId[bundle.story.id]));
                         bundle.pages.forEach((pageBlocks, index) => addPage(`${bundle.story.title} ${index + 1}`, buildStoryPageXhtml(bundle.story, pageBlocks, storyStartPageNumbers[bundle.story.id] + 1 + index, assetHrefByKey), false));
                     });
                     if (bookSettings.includeStemGlossaryPage) {
